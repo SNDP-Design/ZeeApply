@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>{{ status|capitalize }} jobs <span class="muted">({{ counts[status] }})</span></h1>
+
+{% if not jobs %}
+  <p class="muted">No jobs here yet. Click <strong>Fetch jobs</strong> in the nav to pull from sources, then <strong>Score new</strong> to rank them against your resume.</p>
+  <p class="muted">First time? <a href="/profile">Set up your profile</a>.</p>
+{% endif %}
+
+<ul class="jobs">
+{% for job in jobs %}
+  <li class="job">
+    <div class="score score-{{ (job.score or 0)//20 }}">{{ job.score if job.score is not none else "—" }}</div>
+    <div class="meta">
+      <a href="/job/{{ job.id }}" class="title">{{ job.title }}</a>
+      <div class="sub">{{ job.company }} · {{ job.location or "—" }} · <span class="muted">{{ job.source }}</span></div>
+      {% if job.score_reason %}<div class="reason">{{ job.score_reason }}</div>{% endif %}
+    </div>
+    <div class="actions">
+      <a href="{{ job.url }}" target="_blank" rel="noopener">Open ↗</a>
+    </div>
+  </li>
+{% endfor %}
+</ul>
+{% endblock %}

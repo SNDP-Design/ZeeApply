@@ -1,0 +1,48 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>Your profile</h1>
+<p class="muted">Used to score jobs and draft cover letters. Paste freely — the more detail, the better the fit.</p>
+
+<form method="post" action="/profile">
+  <label>Target role
+    <input type="text" name="target_role" value="{{ profile.target_role or '' }}" placeholder="Senior Product Designer, UI/UX Designer" />
+  </label>
+
+  <label>Job titles to keep (comma-separated, substring match — case insensitive)
+    <input type="text" name="title_filters" value="{{ profile.title_filters or '' }}" placeholder="ui designer, ux designer, product designer" />
+    <small class="muted">Only jobs whose title contains one of these phrases will be saved. Default targets designer roles. Leave empty to keep every job.</small>
+  </label>
+
+  <label>Country you're based in
+    <input type="text" name="country" value="{{ profile.country or '' }}" placeholder="India" />
+    <small class="muted">Used to auto-exclude jobs that require US citizenship, security clearance, ITAR/EAR, or "no sponsorship in the US". Leave blank to keep all jobs.</small>
+  </label>
+
+  <label>Work authorization / sponsorship needs
+    <input type="text" name="work_authorization" value="{{ profile.work_authorization or '' }}" placeholder="Need visa sponsorship outside India; open to remote-global roles" />
+    <small class="muted">Free text — used by the scorer when ranking jobs.</small>
+  </label>
+
+  <label>Locations (comma-separated, or "remote")
+    <input type="text" name="locations" value="{{ profile.locations or '' }}" placeholder="Remote, Bengaluru, India, anywhere" />
+  </label>
+
+  <label>Minimum salary (USD, optional)
+    <input type="text" name="min_salary" value="{{ profile.min_salary or '' }}" placeholder="180000" />
+  </label>
+
+  <label>Must-have keywords (comma-separated)
+    <input type="text" name="keywords" value="{{ profile.keywords or '' }}" placeholder="distributed systems, Python, Kubernetes" />
+  </label>
+
+  <label>Exclusions (comma-separated)
+    <input type="text" name="exclusions" value="{{ profile.exclusions or '' }}" placeholder="crypto, defense, on-site only, junior" />
+  </label>
+
+  <label>Resume (paste plain text)
+    <textarea name="resume" rows="22" placeholder="Paste your resume here…">{{ profile.resume or '' }}</textarea>
+  </label>
+
+  <button type="submit">Save profile</button>
+</form>
+{% endblock %}

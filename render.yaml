@@ -1,0 +1,28 @@
+services:
+  - type: web
+    name: job-hunter
+    runtime: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.9
+      - key: ANTHROPIC_API_KEY
+        sync: false   # set this in the Render dashboard, do NOT commit
+      - key: APP_USERNAME
+        sync: false   # set in dashboard — your login username
+      - key: APP_PASSWORD
+        sync: false   # set in dashboard — your login password
+      # Optional integrations (only set these if you have keys):
+      - key: ADZUNA_APP_ID
+        sync: false
+      - key: ADZUNA_APP_KEY
+        sync: false
+      - key: ADZUNA_COUNTRY
+        sync: false
+      - key: USAJOBS_EMAIL
+        sync: false
+      - key: USAJOBS_API_KEY
+        sync: false
