@@ -9,8 +9,8 @@ services:
     envVars:
       - key: PYTHON_VERSION
         value: 3.11.9
-      - key: ANTHROPIC_API_KEY
-        sync: false   # set this in the Render dashboard, do NOT commit
+      - key: GEMINI_API_KEY
+        sync: false   # set this in the Render dashboard. Get one free at https://aistudio.google.com/apikey
       - key: APP_USERNAME
         sync: false   # set in dashboard — your login username
       - key: APP_PASSWORD

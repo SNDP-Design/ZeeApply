@@ -1,6 +1,6 @@
 # Job Hunter
 
-Semi-autonomous job search: fetch postings from public job boards, rank them against your resume with Claude, draft tailored cover letters, and queue applications for your review before you submit. No auto-submit, no scraping that violates ToS.
+Semi-autonomous job search: fetch postings from public job boards, rank them against your resume with Gemini, draft tailored cover letters, and queue applications for your review before you submit. No auto-submit, no scraping that violates ToS.
 
 ## How it works
 
@@ -9,7 +9,7 @@ Semi-autonomous job search: fetch postings from public job boards, rank them aga
    - **Free key (optional):** Adzuna (Indeed-style aggregator), USAJobs (US federal jobs)
    Keyword-driven sources (Adzuna, USAJobs) use your profile's `target_role` as the search query.
    Defaults are tuned for designer roles — see Profile → "Job titles to keep".
-2. **Score** — Claude reads each job against your profile and assigns 0–100 with a one-line reason.
+2. **Score** — Gemini reads each job against your profile and assigns 0–100 with a one-line reason. Uses `gemini-2.5-flash` (free tier — no credit card needed).
 3. **Draft** — for any job you open, generate a tailored cover letter grounded in your resume.
 4. **Review** — mark `interested` / `applied` / `skipped`. Open the apply page in a new tab and paste your cover letter.
 
@@ -22,7 +22,7 @@ Dependencies are already installed to your user site-packages (`~/Library/Python
 ```bash
 cd "job-hunter"
 cp .env.example .env
-# Edit .env: set ANTHROPIC_API_KEY=sk-ant-...
+# Edit .env: set GEMINI_API_KEY (get one free at https://aistudio.google.com/apikey)
 
 /usr/bin/python3 -c "from uvicorn import run; run('app.main:app', host='127.0.0.1', port=8000, reload=True)"
 ```
@@ -41,7 +41,7 @@ uvicorn app.main:app --reload --port 8000
 
 1. Go to **Profile** and paste your resume + target role + locations + keywords.
 2. Click **Fetch jobs** in the nav (pulls ~hundreds of postings; takes 10-30s).
-3. Click **Score new** (Claude scores in batches of 25; rerun until "remaining" is 0).
+3. Click **Score new** (Gemini scores in batches of 25; rerun until "remaining" is 0).
 4. Browse the ranked list. Open a high-scoring job, click **Draft tailored cover letter**, edit, mark **Applied** after you submit.
 
 ## Adding companies
@@ -57,7 +57,7 @@ A `render.yaml` blueprint is included. To go live:
 1. Sign up at https://render.com (free) and connect your GitHub.
 2. Dashboard → **New +** → **Blueprint** → pick the `job-hunter` repo.
 3. Render reads `render.yaml` and prompts for env vars. Set:
-   - `ANTHROPIC_API_KEY` — your Claude API key
+   - `GEMINI_API_KEY` — your Gemini API key (free at https://aistudio.google.com/apikey)
    - `APP_USERNAME` — login name (e.g. `sandeep`)
    - `APP_PASSWORD` — strong password
    - Optional: Adzuna / USAJobs keys (skip if you don't have them)

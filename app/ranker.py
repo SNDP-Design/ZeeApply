@@ -1,28 +1,37 @@
+"""Gemini-powered job scorer and cover-letter drafter.
+
+Uses google-genai SDK (the new one, not the deprecated google-generativeai).
+gemini-2.5-flash sits comfortably in Google's free tier for hobbyist volumes
+(thousands of jobs/day). Scoring uses native JSON-output mode so we get
+structured results without regex parsing.
+"""
 from __future__ import annotations
 
 import json
 import os
-import re
 from typing import Optional
 
-from anthropic import Anthropic
+from google import genai
+from google.genai import types
 
-MODEL = "claude-opus-4-7"
-_client: Optional[Anthropic] = None
+MODEL = "gemini-2.5-flash"
+_client: Optional[genai.Client] = None
 
 
-def client() -> Anthropic:
+def client() -> genai.Client:
     global _client
     if _client is None:
-        if not os.environ.get("ANTHROPIC_API_KEY"):
-            raise RuntimeError("ANTHROPIC_API_KEY is not set")
-        _client = Anthropic()
+        if not os.environ.get("GEMINI_API_KEY"):
+            raise RuntimeError(
+                "GEMINI_API_KEY is not set. Get one free at https://aistudio.google.com/apikey"
+            )
+        _client = genai.Client(api_key=os.environ["GEMINI_API_KEY"])
     return _client
 
 
 SCORE_SYSTEM = """You are a precise job-fit evaluator helping a candidate prioritize applications.
 
-Given the candidate's profile and a single job posting, output strict JSON:
+Given the candidate's profile and a single job posting, return JSON:
 {"score": <int 0-100>, "reason": "<<=200 char explanation>"}
 
 Scoring rubric:
@@ -41,8 +50,7 @@ HARD ZERO (score 0) when:
 Penalize: title seniority mismatch, location mismatch when candidate is strict, missing must-have
 skills, "preferred US-based" without remote, visa-sponsorship gaps for the candidate's situation.
 Reward: keyword overlap, domain experience, salary alignment, remote-global postings, explicit
-visa sponsorship mention when the candidate needs it.
-Return JSON only, no prose."""
+visa sponsorship mention when the candidate needs it."""
 
 
 COVER_SYSTEM = """You are drafting a tailored cover letter for the candidate to send for a specific job.
@@ -56,6 +64,17 @@ Constraints:
 - Plain text, no markdown, no greeting line beyond "Hi <Company> team," and no signature block.
 
 Output the letter only — no preamble, no explanation."""
+
+
+# Schema for the scorer — forces Gemini to return exactly these two fields.
+_SCORE_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "score": {"type": "integer", "minimum": 0, "maximum": 100},
+        "reason": {"type": "string"},
+    },
+    "required": ["score", "reason"],
+}
 
 
 def _profile_text(profile: dict) -> str:
@@ -84,25 +103,24 @@ def _job_text(job: dict) -> str:
     )
 
 
-_JSON_RE = re.compile(r"\{.*\}", re.DOTALL)
-
-
 def score_job(profile: dict, job: dict) -> tuple[int, str]:
-    msg = client().messages.create(
+    prompt = f"CANDIDATE PROFILE\n{_profile_text(profile)}\n\nJOB\n{_job_text(job)}"
+    response = client().models.generate_content(
         model=MODEL,
-        max_tokens=300,
-        system=SCORE_SYSTEM,
-        messages=[{
-            "role": "user",
-            "content": f"CANDIDATE PROFILE\n{_profile_text(profile)}\n\nJOB\n{_job_text(job)}",
-        }],
+        contents=prompt,
+        config=types.GenerateContentConfig(
+            system_instruction=SCORE_SYSTEM,
+            response_mime_type="application/json",
+            response_schema=_SCORE_SCHEMA,
+            max_output_tokens=300,
+            temperature=0.2,
+        ),
     )
-    text = msg.content[0].text.strip()
-    match = _JSON_RE.search(text)
-    if not match:
-        return 0, "Could not parse score response"
+    raw = (response.text or "").strip()
+    if not raw:
+        return 0, "Empty response from Gemini"
     try:
-        data = json.loads(match.group(0))
+        data = json.loads(raw)
         score = max(0, min(100, int(data.get("score", 0))))
         reason = str(data.get("reason", ""))[:300]
         return score, reason
@@ -111,13 +129,14 @@ def score_job(profile: dict, job: dict) -> tuple[int, str]:
 
 
 def draft_cover_letter(profile: dict, job: dict) -> str:
-    msg = client().messages.create(
+    prompt = f"CANDIDATE\n{_profile_text(profile)}\n\nJOB\n{_job_text(job)}"
+    response = client().models.generate_content(
         model=MODEL,
-        max_tokens=800,
-        system=COVER_SYSTEM,
-        messages=[{
-            "role": "user",
-            "content": f"CANDIDATE\n{_profile_text(profile)}\n\nJOB\n{_job_text(job)}",
-        }],
+        contents=prompt,
+        config=types.GenerateContentConfig(
+            system_instruction=COVER_SYSTEM,
+            max_output_tokens=800,
+            temperature=0.7,
+        ),
     )
-    return msg.content[0].text.strip()
+    return (response.text or "").strip()
