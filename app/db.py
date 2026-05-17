@@ -4,7 +4,7 @@ import sqlite3
 from contextlib import contextmanager
 from pathlib import Path
 
-DB_PATH = Path(__file__).parent.parent / "jobhunter.db"
+DB_PATH = Path(__file__).parent.parent / "zeeapply.db"
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS profile (
