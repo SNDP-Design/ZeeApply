@@ -1,0 +1,207 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>ZeeApply · Your AI-powered designer job hunter</title>
+<meta name="description" content="Aggregate jobs from 8 free designer-friendly boards, rank them against your resume with Gemini, draft tailored cover letters. Free, private, always on." />
+<meta property="og:site_name" content="ZeeApply" />
+<meta property="og:title" content="ZeeApply · Your AI-powered designer job hunter" />
+<meta property="og:description" content="One dashboard. Eight free job boards. Gemini-ranked. Cover letters drafted for you." />
+<meta property="og:type" content="website" />
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%23000'/%3E%3Ctext x='16' y='22' font-family='-apple-system,sans-serif' font-size='18' font-weight='800' fill='%23fff' text-anchor='middle'%3EZ%3C/text%3E%3C/svg%3E" />
+<style>
+  :root{
+    --bg:#000;--bg-2:#070707;--panel:#0d0d0d;--panel-2:#141414;
+    --ink:#ededed;--muted:#8a8a8a;--accent:#fff;--line:#1f1f1f;--chip:#161616;
+    --good:#4ade80;--blue:#6aa6ff;
+  }
+  *{box-sizing:border-box}
+  html{scroll-behavior:smooth;margin:0;padding:0}
+  body{margin:0;padding:0;background:var(--bg);color:var(--ink);font:16px/1.6 -apple-system,BlinkMacSystemFont,"SF Pro Text","Inter",system-ui,sans-serif;-webkit-font-smoothing:antialiased;overflow-x:clip;min-height:100vh}
+  a{color:var(--ink);text-decoration:none}
+  body{background:radial-gradient(1200px 600px at 80% -10%,#1a1a1a 0%,transparent 60%),radial-gradient(900px 500px at -10% 110%,#101010 0%,transparent 60%),var(--bg);position:relative}
+  body::before, body::after{content:"";position:fixed;inset:0;pointer-events:none;z-index:0}
+  body::before{background:radial-gradient(600px 600px at 20% 30%, rgba(255,255,255,.04), transparent 60%);animation:aurora1 22s ease-in-out infinite}
+  body::after{background:radial-gradient(700px 500px at 80% 70%, rgba(255,255,255,.035), transparent 65%);animation:aurora2 28s ease-in-out infinite}
+  @keyframes aurora1{0%,100%{transform:translate(0,0)}50%{transform:translate(80px,-40px)}}
+  @keyframes aurora2{0%,100%{transform:translate(0,0)}50%{transform:translate(-100px,60px)}}
+  nav.top, main, section, footer, .wrap{position:relative;z-index:1}
+  .wrap{max-width:1100px;margin:0 auto;padding:0 22px}
+
+  nav.top{position:relative;z-index:30;background:transparent;border-bottom:1px solid var(--line)}
+  nav.top .row{display:flex;align-items:center;height:72px;gap:18px}
+  .brand{display:flex;align-items:center;gap:10px}
+  .logo{width:36px;height:36px;border-radius:10px;background:#000;border:1px solid #1f1f1f;display:inline-flex;align-items:center;justify-content:center;font-weight:800;font-size:18px}
+  .brand b{font-size:15px;letter-spacing:.2px}
+  nav.top .right{margin-left:auto;display:flex;gap:10px;align-items:center}
+
+  .btn{display:inline-flex;align-items:center;gap:8px;padding:10px 18px;border-radius:10px;font-weight:600;font-size:14px;border:0;cursor:pointer;transition:transform .2s cubic-bezier(.2,.8,.2,1), box-shadow .2s, background .2s, border-color .2s;text-decoration:none;position:relative;overflow:hidden}
+  .btn:active{transform:translateY(1px) scale(.98)}
+  .btn:focus-visible{outline:2px solid #fff;outline-offset:3px}
+  .btn.primary{background:linear-gradient(180deg,#fafafa,#d4d4d4);color:#0a0a0a;box-shadow:0 8px 18px rgba(0,0,0,.5),inset 0 1px 0 rgba(255,255,255,.6)}
+  .btn.primary:hover{background:linear-gradient(180deg,#fff,#e5e5e5);transform:translateY(-2px);box-shadow:0 14px 30px rgba(255,255,255,.18)}
+  .btn.secondary{background:transparent;border:1px solid var(--line);color:var(--ink)}
+  .btn.secondary:hover{border-color:#fff}
+
+  /* Hero */
+  .hero{padding:80px 0 60px;text-align:center}
+  .pill-row{display:flex;justify-content:center;gap:8px;margin-bottom:24px;flex-wrap:wrap}
+  .pill{display:inline-flex;align-items:center;gap:6px;padding:6px 12px;background:var(--chip);border:1px solid var(--line);border-radius:999px;font-size:12px;color:var(--muted)}
+  .pill .dot{width:6px;height:6px;border-radius:50%;background:var(--good)}
+  h1.headline{font-size:clamp(36px, 6vw, 64px);line-height:1.05;letter-spacing:-1.5px;margin:0 0 18px;font-weight:800;background:linear-gradient(180deg,#fff 0%, #aaa 130%);-webkit-background-clip:text;background-clip:text;color:transparent}
+  p.sub{font-size:clamp(16px, 1.6vw, 19px);max-width:660px;margin:0 auto 32px;color:#cdcdcd}
+  .cta-row{display:flex;justify-content:center;gap:12px;flex-wrap:wrap}
+
+  /* Bullets / features */
+  section.features{padding:60px 0}
+  h2.section-h{font-size:28px;margin:0 0 30px;font-weight:700;text-align:center;letter-spacing:-.5px}
+  .grid{display:grid;grid-template-columns:repeat(3,1fr);gap:18px}
+  @media(max-width:780px){.grid{grid-template-columns:1fr}}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:22px;transition:transform .2s, border-color .2s}
+  .card:hover{transform:translateY(-2px);border-color:#333}
+  .card .ico{width:36px;height:36px;border-radius:9px;background:var(--panel-2);border:1px solid var(--line);display:flex;align-items:center;justify-content:center;margin-bottom:14px;font-size:18px}
+  .card h3{margin:0 0 6px;font-size:16px;font-weight:600}
+  .card p{margin:0;font-size:14px;color:var(--muted);line-height:1.55}
+
+  /* Source logos / strip */
+  .sources{padding:50px 0;border-top:1px solid var(--line);border-bottom:1px solid var(--line);margin-top:60px}
+  .sources p.lede{text-align:center;color:var(--muted);font-size:13px;text-transform:uppercase;letter-spacing:.15em;margin:0 0 22px}
+  .source-grid{display:flex;justify-content:center;flex-wrap:wrap;gap:10px 14px}
+  .source-grid span{padding:8px 14px;background:var(--chip);border:1px solid var(--line);border-radius:8px;font-size:13px;color:#cdcdcd}
+
+  /* How */
+  section.how{padding:70px 0}
+  .steps{display:grid;grid-template-columns:repeat(4,1fr);gap:16px;counter-reset:step}
+  @media(max-width:880px){.steps{grid-template-columns:1fr 1fr}}
+  @media(max-width:520px){.steps{grid-template-columns:1fr}}
+  .step{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:18px;position:relative}
+  .step::before{counter-increment:step;content:counter(step,decimal-leading-zero);font-size:11px;font-weight:700;color:var(--muted);letter-spacing:.1em}
+  .step h4{margin:4px 0 6px;font-size:15px;font-weight:600}
+  .step p{margin:0;font-size:13px;color:var(--muted);line-height:1.5}
+
+  /* Footer */
+  footer{padding:40px 0 60px;border-top:1px solid var(--line);margin-top:60px;color:var(--muted);font-size:13px}
+  footer .row{display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:14px}
+  footer a{color:var(--muted)}
+  footer a:hover{color:var(--ink)}
+</style>
+</head>
+<body>
+
+<nav class="top">
+  <div class="wrap row">
+    <a href="/" class="brand">
+      <span class="logo">Z</span>
+      <b>ZeeApply</b>
+    </a>
+    <div class="right">
+      <a href="/app/" class="btn primary">Open app →</a>
+    </div>
+  </div>
+</nav>
+
+<main>
+  <section class="hero">
+    <div class="wrap">
+      <div class="pill-row">
+        <span class="pill"><span class="dot"></span> Always on · Free · Private</span>
+        <span class="pill">Powered by Gemini</span>
+      </div>
+      <h1 class="headline">Your AI-powered designer job hunter.</h1>
+      <p class="sub">Aggregate jobs from 8 free designer-friendly boards. Rank every posting against your resume with Gemini. Draft tailored cover letters in one click. No CSV exports, no spreadsheets, no recruiter spam.</p>
+      <div class="cta-row">
+        <a href="/app/" class="btn primary">Open app →</a>
+        <a href="https://github.com/SNDP-Design/ZeeApply" target="_blank" rel="noopener" class="btn secondary">View on GitHub</a>
+      </div>
+    </div>
+  </section>
+
+  <section class="features">
+    <div class="wrap">
+      <h2 class="section-h">Built for designers</h2>
+      <div class="grid">
+        <div class="card">
+          <div class="ico">🎯</div>
+          <h3>Designer-focused by default</h3>
+          <p>Only Product / UI / UX / Design Manager roles. Everything else dropped before it touches your feed. Edit the title filter any time.</p>
+        </div>
+        <div class="card">
+          <div class="ico">🌏</div>
+          <h3>Country-aware</h3>
+          <p>Tell it you're outside the US — postings that require citizenship, security clearance, ITAR, or refuse visa sponsorship are auto-excluded.</p>
+        </div>
+        <div class="card">
+          <div class="ico">🤖</div>
+          <h3>Gemini-scored</h3>
+          <p>Each job ranked 0–100 against your resume with a one-line reason. Four-model fallback chain so scoring never stalls on quota.</p>
+        </div>
+        <div class="card">
+          <div class="ico">✉️</div>
+          <h3>Cover letters, drafted</h3>
+          <p>Open a high-scoring role, hit one button. A tailored 180-word letter referencing the job and 2–3 specific resume achievements.</p>
+        </div>
+        <div class="card">
+          <div class="ico">🔒</div>
+          <h3>Private to you</h3>
+          <p>Sign in with Google. Your resume + pipeline live in your own Firestore. No server-side database we can read. No sharing, ever.</p>
+        </div>
+        <div class="card">
+          <div class="ico">⚡</div>
+          <h3>Truly free, truly always-on</h3>
+          <p>GitHub Pages frontend + Cloudflare Worker backend + Gemini free tier. Zero paid services, zero sleep delays, zero credit cards.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="sources">
+    <div class="wrap">
+      <p class="lede">Aggregating from</p>
+      <div class="source-grid">
+        <span>Greenhouse (15+ co)</span>
+        <span>Lever (Palantir, Mistral)</span>
+        <span>RemoteOK</span>
+        <span>Remotive</span>
+        <span>Arbeitnow</span>
+        <span>Jobicy</span>
+        <span>WeWorkRemotely</span>
+        <span>Working Nomads</span>
+      </div>
+    </div>
+  </section>
+
+  <section class="how">
+    <div class="wrap">
+      <h2 class="section-h">How it works</h2>
+      <div class="steps">
+        <div class="step">
+          <h4>Sign in</h4>
+          <p>Google sign-in. Your data is keyed to your Google account — only you can see it.</p>
+        </div>
+        <div class="step">
+          <h4>Set profile</h4>
+          <p>Paste resume, target role, country, job-title filter. Saved to your private Firestore.</p>
+        </div>
+        <div class="step">
+          <h4>Fetch + score</h4>
+          <p>One click pulls thousands of jobs, filters to designers, excludes US-only. Gemini ranks them all.</p>
+        </div>
+        <div class="step">
+          <h4>Apply</h4>
+          <p>Open a top match → draft cover letter → review → mark Applied. Done.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+</main>
+
+<footer>
+  <div class="wrap row">
+    <span>ZeeApply · <a href="https://github.com/SNDP-Design/ZeeApply" target="_blank" rel="noopener">GitHub</a></span>
+    <span>Built like <a href="https://www.xgrowth.uno" target="_blank" rel="noopener">XGrowth</a></span>
+  </div>
+</footer>
+
+</body>
+</html>

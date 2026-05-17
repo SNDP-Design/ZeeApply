@@ -1,0 +1,14 @@
+{
+  "name": "zeeapply-api",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Cloudflare Worker proxy for ZeeApply — fetches job sources and calls Google Gemini for scoring + cover letters",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "tail": "wrangler tail"
+  },
+  "devDependencies": {
+    "wrangler": "^4.92.0"
+  }
+}

@@ -1,0 +1,840 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>ZeeApply · App</title>
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%23000'/%3E%3Ctext x='16' y='22' font-family='-apple-system,sans-serif' font-size='18' font-weight='800' fill='%23fff' text-anchor='middle'%3EZ%3C/text%3E%3C/svg%3E" />
+
+<!-- Firebase compat SDK (same versions as XGrowth) -->
+<script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore-compat.js"></script>
+
+<style>
+  :root{
+    --bg:#000;--bg-2:#070707;--panel:#0d0d0d;--panel-2:#141414;
+    --ink:#ededed;--muted:#8a8a8a;--accent:#fff;--accent-2:#bdbdbd;
+    --good:#4ade80;--warn:#fbbf24;--bad:#f87171;--blue:#6aa6ff;
+    --line:#1f1f1f;--chip:#161616;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0;background:radial-gradient(1200px 600px at 80% -10%,#1a1a1a 0%,transparent 60%),radial-gradient(900px 500px at -10% 110%,#101010 0%,transparent 60%),var(--bg);color:var(--ink);font:14px/1.55 -apple-system,BlinkMacSystemFont,"SF Pro Text","Inter",system-ui,sans-serif;-webkit-font-smoothing:antialiased}
+  a{color:var(--accent-2);text-decoration:none}
+  a:hover{color:var(--ink)}
+  button{font:inherit;cursor:pointer}
+  small{color:var(--muted);font-size:12px}
+
+  /* App shell */
+  .app{display:grid;grid-template-columns:240px 1fr;min-height:100vh}
+  @media(max-width:880px){.app{grid-template-columns:1fr}}
+
+  /* Sidebar */
+  .side{background:linear-gradient(180deg,#0a0a0a,#050505);border-right:1px solid var(--line);padding:16px 12px;position:sticky;top:0;height:100vh;display:flex;flex-direction:column;gap:8px;overflow-y:auto}
+  @media(max-width:880px){.side{position:relative;height:auto;border-right:0;border-bottom:1px solid var(--line)}}
+  .brand{display:flex;align-items:center;gap:10px;padding:6px 8px;margin-bottom:8px}
+  .logo{width:32px;height:32px;border-radius:8px;background:#000;border:1px solid #333;display:inline-flex;align-items:center;justify-content:center;font-weight:800;font-size:16px}
+  .brand h1{font-size:15px;margin:0;font-weight:700}
+  .brand small{display:block;font-size:11px}
+
+  .nav{display:flex;flex-direction:column;gap:2px;margin-top:4px}
+  .nav .group-label{font-size:10px;text-transform:uppercase;letter-spacing:.15em;color:var(--muted);padding:14px 10px 4px}
+  .nav button{display:flex;align-items:center;gap:10px;background:transparent;border:1px solid transparent;color:var(--muted);text-align:left;padding:9px 10px;border-radius:8px;width:100%;transition:.12s;font-size:13px;font-weight:500}
+  .nav button:hover{color:var(--ink);background:var(--panel)}
+  .nav button.active{background:linear-gradient(180deg,#1c1c1c,#141414);border-color:var(--line);color:var(--ink);box-shadow:inset 0 0 0 1px rgba(255,255,255,.06)}
+  .nav .count{margin-left:auto;font-size:11px;color:var(--muted);background:var(--chip);padding:2px 7px;border-radius:999px;border:1px solid var(--line)}
+  .nav button.active .count{color:var(--ink)}
+
+  .side .foot{margin-top:auto;padding:10px 8px;font-size:11px;color:var(--muted);border-top:1px solid var(--line)}
+  .side .foot .user{display:flex;align-items:center;gap:10px;margin-bottom:8px}
+  .side .foot .avatar{width:28px;height:28px;border-radius:50%;background:var(--chip);border:1px solid var(--line);overflow:hidden;flex-shrink:0}
+  .side .foot .avatar img{width:100%;height:100%;display:block}
+  .side .foot .uname{color:var(--ink);font-size:12px;font-weight:600;line-height:1.2;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .side .foot .uemail{font-size:10px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .side .foot button.signout{width:100%;background:transparent;border:1px solid var(--line);color:var(--muted);padding:6px;border-radius:6px;font-size:11px}
+  .side .foot button.signout:hover{color:var(--ink);border-color:#333}
+
+  /* Main */
+  main{padding:20px 28px 60px;overflow-x:hidden}
+  @media(max-width:560px){main{padding:16px}}
+  .topbar{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:16px;flex-wrap:wrap}
+  .crumbs{color:var(--muted);font-size:12px}
+  .topbar h2{margin:0;font-size:22px;font-weight:700;letter-spacing:-.3px}
+  .topbar .actions{display:flex;gap:8px;flex-wrap:wrap}
+
+  /* Buttons */
+  .btn{display:inline-flex;align-items:center;gap:6px;padding:8px 14px;border-radius:8px;font-weight:600;font-size:13px;border:1px solid transparent;cursor:pointer;transition:.15s;text-decoration:none}
+  .btn:disabled{opacity:.5;cursor:not-allowed}
+  .btn.primary{background:linear-gradient(180deg,#fafafa,#d4d4d4);color:#0a0a0a;border-color:transparent}
+  .btn.primary:hover:not(:disabled){background:linear-gradient(180deg,#fff,#e5e5e5)}
+  .btn.secondary{background:var(--panel);border-color:var(--line);color:var(--ink)}
+  .btn.secondary:hover:not(:disabled){border-color:#444}
+  .btn.ghost{background:transparent;color:var(--muted)}
+  .btn.ghost:hover:not(:disabled){color:var(--ink)}
+
+  /* Status pill */
+  .pill{display:inline-flex;align-items:center;gap:6px;padding:4px 10px;background:var(--chip);border:1px solid var(--line);border-radius:999px;font-size:11px;color:var(--muted)}
+  .pill .dot{width:6px;height:6px;border-radius:50%;background:var(--good)}
+  .pill.warn .dot{background:var(--warn)}
+  .pill.bad .dot{background:var(--bad)}
+  .pill b{color:var(--ink);font-weight:600}
+
+  /* Forms */
+  .field{display:block;margin:14px 0}
+  .field label{display:block;font-size:12px;font-weight:600;margin-bottom:6px;color:var(--ink)}
+  .field .hint{display:block;font-size:11px;color:var(--muted);margin-top:5px}
+  .field input[type=text], .field input[type=number], .field textarea{width:100%;background:var(--panel);color:var(--ink);border:1px solid var(--line);padding:9px 11px;border-radius:7px;font:inherit;transition:border-color .15s}
+  .field input:focus, .field textarea:focus{outline:0;border-color:#444}
+  .field textarea{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;resize:vertical;min-height:80px}
+
+  /* Job list */
+  .toolbar{display:flex;align-items:center;gap:8px;margin:14px 0 8px;flex-wrap:wrap}
+  .toolbar .right{margin-left:auto;display:flex;gap:6px;font-size:12px;color:var(--muted)}
+  .joblist{display:flex;flex-direction:column;gap:6px}
+  .jobrow{display:grid;grid-template-columns:48px 1fr auto;gap:14px;align-items:center;padding:12px 14px;background:var(--panel);border:1px solid var(--line);border-radius:10px;cursor:pointer;transition:.12s}
+  .jobrow:hover{border-color:#333;background:var(--panel-2)}
+  .score{width:40px;height:40px;border-radius:8px;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:14px;background:var(--chip);color:var(--muted);font-variant-numeric:tabular-nums}
+  .score.s-4, .score.s-5{background:rgba(74,222,128,.16);color:var(--good)}
+  .score.s-3{background:rgba(251,191,36,.16);color:var(--warn)}
+  .score.s-0, .score.s-1, .score.s-2{background:rgba(248,113,113,.14);color:var(--bad)}
+  .jobrow .meta .title{font-weight:600;font-size:14px;color:var(--ink);margin-bottom:2px;line-height:1.3}
+  .jobrow .meta .sub{font-size:12px;color:var(--muted)}
+  .jobrow .meta .reason{font-size:12px;color:#cdcdcd;margin-top:4px;line-height:1.4}
+  .jobrow .arrow{color:var(--muted);font-size:18px}
+
+  /* Job detail */
+  .row{display:flex;gap:14px;align-items:center;flex-wrap:wrap}
+  .desc{white-space:pre-wrap;background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:14px;font-size:13px;max-height:500px;overflow:auto;line-height:1.55}
+  .status-bar{display:flex;gap:6px;margin:12px 0;flex-wrap:wrap}
+  .status-bar button{padding:6px 12px;border-radius:7px;background:transparent;border:1px solid var(--line);color:var(--muted);font-size:12px;text-transform:capitalize}
+  .status-bar button:hover{color:var(--ink);border-color:#444}
+  .status-bar button.active{background:var(--ink);color:#000;border-color:var(--ink)}
+
+  /* Auth gate */
+  .gate{display:flex;align-items:center;justify-content:center;min-height:100vh;padding:24px}
+  .gate-card{max-width:420px;background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:36px;text-align:center}
+  .gate-card .logo{width:48px;height:48px;font-size:22px;margin:0 auto 16px}
+  .gate-card h1{margin:0 0 8px;font-size:22px;font-weight:700;letter-spacing:-.3px}
+  .gate-card p{margin:0 0 22px;color:var(--muted);font-size:14px;line-height:1.6}
+  .gate-card .btn.primary{width:100%;justify-content:center;padding:12px}
+
+  /* Toast */
+  .toasts{position:fixed;bottom:20px;right:20px;display:flex;flex-direction:column;gap:8px;z-index:1000}
+  .toast{background:var(--panel-2);border:1px solid var(--line);color:var(--ink);padding:10px 14px;border-radius:8px;font-size:13px;animation:toast-in .25s ease-out;max-width:340px;box-shadow:0 8px 24px rgba(0,0,0,.4)}
+  .toast.err{border-color:var(--bad)}
+  .toast.ok{border-color:var(--good)}
+  @keyframes toast-in{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
+
+  /* Misc */
+  .hidden{display:none !important}
+  .center{text-align:center}
+  .empty{padding:40px 20px;text-align:center;color:var(--muted)}
+  .empty .ico{font-size:32px;margin-bottom:10px;opacity:.5}
+  .spinner{display:inline-block;width:14px;height:14px;border:2px solid currentColor;border-top-color:transparent;border-radius:50%;animation:spin .8s linear infinite;vertical-align:middle}
+  @keyframes spin{to{transform:rotate(360deg)}}
+</style>
+</head>
+
+<body>
+
+<!-- ────────────────────────────────────────────────────────────────────── -->
+<!-- AUTH GATE (shown until signed in)                                     -->
+<!-- ────────────────────────────────────────────────────────────────────── -->
+<div id="gate" class="gate hidden">
+  <div class="gate-card">
+    <div class="logo">Z</div>
+    <h1>Welcome to ZeeApply</h1>
+    <p>Sign in with Google to access your private job pipeline. Your resume and saved jobs are stored under your account and only visible to you.</p>
+    <button class="btn primary" id="signinBtn">
+      <svg width="16" height="16" viewBox="0 0 24 24" style="vertical-align:middle"><path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/><path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/><path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/><path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/></svg>
+      Sign in with Google
+    </button>
+    <p style="margin-top:18px;font-size:11px"><a href="/">← back to landing</a></p>
+  </div>
+</div>
+
+<!-- ────────────────────────────────────────────────────────────────────── -->
+<!-- APP SHELL (shown after sign in)                                       -->
+<!-- ────────────────────────────────────────────────────────────────────── -->
+<div id="app" class="app hidden">
+
+  <aside class="side">
+    <a href="/" class="brand">
+      <span class="logo">Z</span>
+      <div>
+        <h1>ZeeApply</h1>
+        <small>private build</small>
+      </div>
+    </a>
+
+    <div class="nav" id="nav">
+      <div class="group-label">Pipeline</div>
+      <button data-view="jobs" data-status="new">📋 New jobs <span class="count" data-count="new">0</span></button>
+      <button data-view="jobs" data-status="interested">⭐ Interested <span class="count" data-count="interested">0</span></button>
+      <button data-view="jobs" data-status="applied">✅ Applied <span class="count" data-count="applied">0</span></button>
+      <button data-view="jobs" data-status="skipped">🚫 Skipped <span class="count" data-count="skipped">0</span></button>
+      <button data-view="jobs" data-status="excluded">⛔ Excluded <span class="count" data-count="excluded">0</span></button>
+
+      <div class="group-label">Settings</div>
+      <button data-view="profile">👤 Profile</button>
+    </div>
+
+    <div class="foot">
+      <div class="user">
+        <div class="avatar"><img id="userAvatar" alt=""/></div>
+        <div style="overflow:hidden">
+          <div class="uname" id="userName">—</div>
+          <div class="uemail" id="userEmail">—</div>
+        </div>
+      </div>
+      <button class="signout" id="signoutBtn">Sign out</button>
+    </div>
+  </aside>
+
+  <main>
+    <!-- View: Profile -->
+    <section id="view-profile" class="view hidden">
+      <div class="topbar">
+        <div>
+          <div class="crumbs">Settings</div>
+          <h2>Profile</h2>
+        </div>
+        <div class="actions">
+          <button class="btn primary" id="saveProfileBtn">Save profile</button>
+        </div>
+      </div>
+
+      <form id="profileForm" onsubmit="return false">
+        <div class="field">
+          <label>Target role</label>
+          <input type="text" name="targetRole" placeholder="Senior Product Designer, UI/UX Designer" />
+        </div>
+
+        <div class="field">
+          <label>Job titles to keep (comma-separated, substring match)</label>
+          <input type="text" name="titleFilters" placeholder="ui designer, ux designer, product designer, design lead" />
+          <span class="hint">Only jobs whose title contains one of these phrases will be saved. Default targets designer roles. Leave empty to keep every job.</span>
+        </div>
+
+        <div class="field">
+          <label>Country you're based in</label>
+          <input type="text" name="country" placeholder="India" />
+          <span class="hint">Used to auto-exclude jobs that require US citizenship, security clearance, ITAR/EAR, or "no sponsorship in the US". Leave blank to keep all jobs.</span>
+        </div>
+
+        <div class="field">
+          <label>Work authorization / sponsorship needs</label>
+          <input type="text" name="workAuthorization" placeholder="Need visa sponsorship outside India; open to remote-global roles" />
+        </div>
+
+        <div class="field">
+          <label>Locations open to (comma-separated, or "remote")</label>
+          <input type="text" name="locations" placeholder="Remote, Bengaluru, India" />
+        </div>
+
+        <div class="field">
+          <label>Minimum salary (USD, optional)</label>
+          <input type="text" name="minSalary" placeholder="100000" />
+        </div>
+
+        <div class="field">
+          <label>Must-have keywords (comma-separated)</label>
+          <input type="text" name="keywords" placeholder="Figma, design systems, B2B SaaS" />
+        </div>
+
+        <div class="field">
+          <label>Exclusions (comma-separated)</label>
+          <input type="text" name="exclusions" placeholder="crypto, gambling, on-site only" />
+        </div>
+
+        <div class="field">
+          <label>Resume (paste plain text)</label>
+          <textarea name="resume" rows="20" placeholder="Paste your resume here…"></textarea>
+        </div>
+
+        <div class="field">
+          <label>Greenhouse companies (comma-separated slugs; from boards.greenhouse.io/&lt;slug&gt;)</label>
+          <input type="text" name="greenhouseCompanies" placeholder="anthropic, stripe, figma, ..." />
+          <span class="hint">Leave empty to use the built-in designer-heavy default list.</span>
+        </div>
+
+        <div class="field">
+          <label>Lever companies (comma-separated slugs; from jobs.lever.co/&lt;slug&gt;)</label>
+          <input type="text" name="leverCompanies" placeholder="palantir, mistral" />
+        </div>
+      </form>
+    </section>
+
+    <!-- View: Jobs list -->
+    <section id="view-jobs" class="view hidden">
+      <div class="topbar">
+        <div>
+          <div class="crumbs" id="jobsCrumb">Pipeline</div>
+          <h2 id="jobsTitle">Jobs</h2>
+        </div>
+        <div class="actions">
+          <button class="btn secondary" id="fetchBtn">Fetch jobs</button>
+          <button class="btn primary" id="scoreBtn">Score new</button>
+        </div>
+      </div>
+
+      <div class="toolbar">
+        <span class="pill"><span class="dot"></span><span id="statusPill">Ready</span></span>
+        <div class="right" id="jobsMeta"></div>
+      </div>
+
+      <div class="joblist" id="joblist"></div>
+    </section>
+
+    <!-- View: Job detail -->
+    <section id="view-job" class="view hidden">
+      <div class="topbar">
+        <div>
+          <div class="crumbs"><a href="#" id="backToJobs">← back to jobs</a></div>
+          <h2 id="jobTitle"></h2>
+        </div>
+        <div class="actions">
+          <a class="btn secondary" id="jobOpenLink" target="_blank" rel="noopener">Open posting ↗</a>
+        </div>
+      </div>
+
+      <div class="row" style="margin-bottom:12px">
+        <div class="score" id="jobScore">—</div>
+        <div style="flex:1">
+          <div id="jobMeta" style="color:var(--muted);font-size:13px;margin-bottom:4px"></div>
+          <div id="jobReason" style="font-size:13px;color:#cdcdcd"></div>
+        </div>
+      </div>
+
+      <div class="status-bar" id="jobStatusBar"></div>
+
+      <h3 style="margin:18px 0 10px;font-size:14px;color:var(--muted);text-transform:uppercase;letter-spacing:.1em">Cover letter</h3>
+      <div id="coverLetterWrap">
+        <button class="btn primary" id="draftBtn">Draft tailored cover letter</button>
+      </div>
+
+      <h3 style="margin:18px 0 10px;font-size:14px;color:var(--muted);text-transform:uppercase;letter-spacing:.1em">Job description</h3>
+      <pre class="desc" id="jobDesc"></pre>
+    </section>
+  </main>
+
+</div>
+
+<div class="toasts" id="toasts"></div>
+
+<script>
+// ─────────────────────────────────────────────────────────────────────────
+// CONFIG — fill these in for your own Firebase + Worker
+// ─────────────────────────────────────────────────────────────────────────
+const firebaseConfig = {
+  // REPLACE these with your own values from
+  // Firebase Console → Project Settings → Your apps → Web app config
+  apiKey: 'REPLACE_ME',
+  authDomain: 'REPLACE_ME.firebaseapp.com',
+  projectId: 'REPLACE_ME',
+  storageBucket: 'REPLACE_ME.appspot.com',
+  messagingSenderId: 'REPLACE_ME',
+  appId: 'REPLACE_ME',
+};
+
+// Worker base URL. Auto-detects local dev (port 8787 from `npx wrangler dev`).
+// In production, replace 'https://zeeapply-api.YOUR_SUBDOMAIN.workers.dev'
+// with the URL Wrangler printed after `wrangler deploy`.
+const API_BASE = (location.hostname === 'localhost' || location.hostname === '127.0.0.1')
+  ? 'http://127.0.0.1:8787'
+  : 'https://zeeapply-api.YOUR_SUBDOMAIN.workers.dev';
+
+// Default designer-focused profile applied to new users on first sign-in.
+const DEFAULT_PROFILE = {
+  targetRole: 'Senior Product Designer',
+  titleFilters: 'ui designer, ux designer, product designer, ui/ux designer, ux/ui designer, design lead, head of design, principal designer, staff designer, senior designer, design manager, visual designer, interaction designer',
+  country: 'India',
+  workAuthorization: 'Need visa sponsorship outside India; remote-global preferred',
+  locations: 'Remote, Bengaluru, India',
+  minSalary: '',
+  keywords: '',
+  exclusions: '',
+  resume: '',
+  greenhouseCompanies: '',
+  leverCompanies: '',
+};
+
+// ─────────────────────────────────────────────────────────────────────────
+// FIREBASE INIT
+// ─────────────────────────────────────────────────────────────────────────
+firebase.initializeApp(firebaseConfig);
+const fbAuth = firebase.auth();
+const db = firebase.firestore();
+
+// ─────────────────────────────────────────────────────────────────────────
+// STATE
+// ─────────────────────────────────────────────────────────────────────────
+const state = {
+  user: null,           // firebase.User
+  profile: null,        // profile doc data
+  jobs: {},             // jobKey -> job doc
+  currentView: 'jobs',
+  currentStatus: 'new', // for jobs view
+  currentJobKey: null,  // for job detail view
+};
+
+// ─────────────────────────────────────────────────────────────────────────
+// UI HELPERS
+// ─────────────────────────────────────────────────────────────────────────
+const $ = (id) => document.getElementById(id);
+const show = (el) => el.classList.remove('hidden');
+const hide = (el) => el.classList.add('hidden');
+
+function toast(msg, kind = '') {
+  const el = document.createElement('div');
+  el.className = `toast ${kind}`;
+  el.textContent = msg;
+  $('toasts').appendChild(el);
+  setTimeout(() => el.remove(), 4500);
+}
+
+function setStatusPill(text, kind = '') {
+  $('statusPill').textContent = text;
+  const pill = $('statusPill').closest('.pill');
+  pill.classList.remove('warn', 'bad');
+  if (kind) pill.classList.add(kind);
+}
+
+function escapeHtml(s) {
+  return String(s || '').replace(/[&<>"']/g, c => ({
+    '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'
+  }[c]));
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// AUTH
+// ─────────────────────────────────────────────────────────────────────────
+$('signinBtn').addEventListener('click', async () => {
+  const provider = new firebase.auth.GoogleAuthProvider();
+  try {
+    await fbAuth.signInWithPopup(provider);
+  } catch (e) {
+    // Popup can be blocked on some mobile browsers — fall back to redirect.
+    if (e.code === 'auth/popup-blocked' || e.code === 'auth/popup-closed-by-user') {
+      await fbAuth.signInWithRedirect(provider);
+    } else {
+      toast('Sign-in failed: ' + (e.message || e.code), 'err');
+    }
+  }
+});
+
+$('signoutBtn').addEventListener('click', () => fbAuth.signOut());
+
+fbAuth.onAuthStateChanged(async (user) => {
+  state.user = user;
+  if (!user) {
+    show($('gate'));
+    hide($('app'));
+    return;
+  }
+  hide($('gate'));
+  show($('app'));
+  // Populate sidebar user info
+  $('userName').textContent = user.displayName || user.email || 'You';
+  $('userEmail').textContent = user.email || '';
+  if (user.photoURL) $('userAvatar').src = user.photoURL;
+  await loadFromFirestore();
+  routeFromHash();
+});
+
+// ─────────────────────────────────────────────────────────────────────────
+// FIRESTORE
+// State shape:
+//   users/{uid}                  → { profile, meta }
+//   users/{uid}/jobs/{jobKey}    → { source, externalId, title, ..., score, status, coverLetter, ... }
+// ─────────────────────────────────────────────────────────────────────────
+
+const userDoc = () => db.collection('users').doc(state.user.uid);
+const jobDoc = (key) => userDoc().collection('jobs').doc(key);
+const jobKey = (j) => `${j.source}__${j.externalId}`.replace(/[\/#?]/g, '_');
+
+async function loadFromFirestore() {
+  // Load profile
+  const snap = await userDoc().get();
+  if (!snap.exists) {
+    // First sign-in for this user — seed with designer-focused defaults
+    state.profile = { ...DEFAULT_PROFILE };
+    await userDoc().set({
+      profile: state.profile,
+      meta: { createdAt: Date.now(), updatedAt: Date.now() },
+    });
+  } else {
+    state.profile = snap.data().profile || { ...DEFAULT_PROFILE };
+  }
+  populateProfileForm();
+
+  // Load jobs (capped at 500 for free Firestore tier safety)
+  const jobSnap = await userDoc().collection('jobs').limit(500).get();
+  state.jobs = {};
+  jobSnap.forEach(d => { state.jobs[d.id] = d.data(); });
+  updateCounts();
+}
+
+async function saveProfileToFirestore() {
+  await userDoc().set({
+    profile: state.profile,
+    meta: { updatedAt: Date.now() },
+  }, { merge: true });
+}
+
+function populateProfileForm() {
+  const form = $('profileForm');
+  for (const [k, v] of Object.entries(state.profile || {})) {
+    const inp = form.querySelector(`[name="${k}"]`);
+    if (inp) inp.value = v ?? '';
+  }
+}
+
+function readProfileForm() {
+  const form = $('profileForm');
+  const fd = new FormData(form);
+  const out = {};
+  for (const [k, v] of fd.entries()) out[k] = (v || '').toString();
+  return out;
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// WORKER API
+// ─────────────────────────────────────────────────────────────────────────
+async function api(path, body) {
+  const r = await fetch(`${API_BASE}${path}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body || {}),
+  });
+  const data = await r.json();
+  if (!r.ok || data.error) throw new Error(data.error || `HTTP ${r.status}`);
+  return data;
+}
+
+function profilePayload() {
+  const p = state.profile || {};
+  return {
+    resume: p.resume,
+    country: p.country,
+    workAuthorization: p.workAuthorization,
+    targetRole: p.targetRole,
+    locations: p.locations,
+    minSalary: p.minSalary,
+    keywords: p.keywords,
+    exclusions: p.exclusions,
+  };
+}
+
+function parseCsv(s) {
+  return (s || '').split(',').map(x => x.trim()).filter(Boolean);
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// FETCH JOBS
+// ─────────────────────────────────────────────────────────────────────────
+$('fetchBtn').addEventListener('click', async () => {
+  if (!state.profile) return;
+  const btn = $('fetchBtn');
+  btn.disabled = true;
+  setStatusPill('Fetching from 8 job sources…');
+  try {
+    const data = await api('/fetch-jobs', {
+      titleFilters: parseCsv(state.profile.titleFilters),
+      country: state.profile.country,
+      greenhouseCompanies: parseCsv(state.profile.greenhouseCompanies),
+      leverCompanies: parseCsv(state.profile.leverCompanies),
+    });
+    // Upsert into Firestore in batches (Firestore limit: 500 writes/batch)
+    let inserted = 0, updated = 0, skipped = 0;
+    const all = data.jobs || [];
+    for (let i = 0; i < all.length; i += 400) {
+      const chunk = all.slice(i, i + 400);
+      const batch = db.batch();
+      for (const j of chunk) {
+        const key = jobKey(j);
+        if (state.jobs[key]) { skipped++; continue; }
+        const doc = {
+          source: j.source,
+          externalId: j.externalId,
+          title: j.title,
+          company: j.company,
+          location: j.location || '',
+          url: j.url,
+          description: (j.description || '').slice(0, 6000),
+          postedAt: j.postedAt || null,
+          score: j.excluded ? -1 : null,
+          scoreReason: j.excluded || '',
+          status: j.excluded ? 'excluded' : 'new',
+          coverLetter: '',
+          savedAt: Date.now(),
+        };
+        batch.set(jobDoc(key), doc);
+        state.jobs[key] = doc;
+        inserted++;
+      }
+      await batch.commit();
+    }
+    updateCounts();
+    renderJobs();
+    setStatusPill(`✓ Fetched ${all.length} · saved ${inserted} new · skipped ${skipped} dupes`, 'warn');
+    toast(`Fetched ${all.length} jobs · ${inserted} new`, 'ok');
+  } catch (e) {
+    setStatusPill('Fetch failed', 'bad');
+    toast('Fetch failed: ' + e.message, 'err');
+  } finally {
+    btn.disabled = false;
+  }
+});
+
+// ─────────────────────────────────────────────────────────────────────────
+// SCORE JOBS
+// ─────────────────────────────────────────────────────────────────────────
+$('scoreBtn').addEventListener('click', async () => {
+  const btn = $('scoreBtn');
+  btn.disabled = true;
+  const pending = Object.entries(state.jobs)
+    .filter(([_, j]) => j.status === 'new' && (j.score === null || j.score === undefined))
+    .slice(0, 50); // cap per click to avoid runaway costs
+  if (!pending.length) {
+    setStatusPill('Nothing new to score', 'warn');
+    btn.disabled = false;
+    return;
+  }
+  let done = 0, failed = 0;
+  for (const [key, j] of pending) {
+    setStatusPill(`Scoring ${done + 1}/${pending.length}…`);
+    try {
+      const res = await api('/score', { profile: profilePayload(), job: j });
+      j.score = res.score;
+      j.scoreReason = res.reason;
+      j.scoreModel = res.model;
+      await jobDoc(key).set({ score: res.score, scoreReason: res.reason, scoreModel: res.model }, { merge: true });
+      done++;
+    } catch (e) {
+      failed++;
+      j.score = -1;
+      j.scoreReason = 'Error: ' + e.message.slice(0, 200);
+      await jobDoc(key).set({ score: -1, scoreReason: j.scoreReason }, { merge: true });
+    }
+    if (done % 10 === 0) renderJobs();
+  }
+  renderJobs();
+  setStatusPill(`✓ Scored ${done} · ${failed} errors`, failed ? 'warn' : '');
+  btn.disabled = false;
+});
+
+// ─────────────────────────────────────────────────────────────────────────
+// RENDER JOB LIST
+// ─────────────────────────────────────────────────────────────────────────
+function jobsForStatus(status) {
+  return Object.entries(state.jobs)
+    .filter(([_, j]) => j.status === status)
+    .map(([k, j]) => ({ key: k, ...j }))
+    .sort((a, b) => (b.score ?? -1) - (a.score ?? -1) || (b.savedAt || 0) - (a.savedAt || 0));
+}
+
+function updateCounts() {
+  for (const status of ['new', 'interested', 'applied', 'skipped', 'excluded']) {
+    const el = document.querySelector(`[data-count="${status}"]`);
+    if (el) el.textContent = jobsForStatus(status).length;
+  }
+}
+
+function renderJobs() {
+  updateCounts();
+  const list = jobsForStatus(state.currentStatus);
+  const wrap = $('joblist');
+  $('jobsTitle').textContent = state.currentStatus.charAt(0).toUpperCase() + state.currentStatus.slice(1) + ' · ' + list.length;
+  if (!list.length) {
+    wrap.innerHTML = `<div class="empty">
+      <div class="ico">🗂️</div>
+      <div>No jobs here yet.</div>
+      <small>${state.currentStatus === 'new' ? 'Click <b>Fetch jobs</b> in the top right to pull from the 8 sources.' : 'Jobs will appear here once you mark them.'}</small>
+    </div>`;
+    return;
+  }
+  wrap.innerHTML = list.map(j => {
+    const score = (j.score === null || j.score === undefined) ? '—' : j.score;
+    const bucket = (j.score === null || j.score === undefined) ? '' : `s-${Math.floor(j.score / 20)}`;
+    return `<div class="jobrow" data-key="${escapeHtml(j.key)}">
+      <div class="score ${bucket}">${score}</div>
+      <div class="meta">
+        <div class="title">${escapeHtml(j.title)}</div>
+        <div class="sub">${escapeHtml(j.company)} · ${escapeHtml(j.location || '—')} · <span style="color:#666">${escapeHtml(j.source)}</span></div>
+        ${j.scoreReason ? `<div class="reason">${escapeHtml(j.scoreReason)}</div>` : ''}
+      </div>
+      <div class="arrow">›</div>
+    </div>`;
+  }).join('');
+  wrap.querySelectorAll('.jobrow').forEach(row => {
+    row.addEventListener('click', () => openJob(row.dataset.key));
+  });
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// JOB DETAIL
+// ─────────────────────────────────────────────────────────────────────────
+function openJob(key) {
+  state.currentJobKey = key;
+  location.hash = `#/job/${encodeURIComponent(key)}`;
+}
+
+function renderJobDetail() {
+  const j = state.jobs[state.currentJobKey];
+  if (!j) {
+    toast('Job not found', 'err');
+    routeTo('jobs');
+    return;
+  }
+  $('jobTitle').textContent = j.title;
+  $('jobMeta').textContent = `${j.company} · ${j.location || '—'} · ${j.source}`;
+  $('jobReason').textContent = j.scoreReason || '(not scored yet)';
+  $('jobOpenLink').href = j.url || '#';
+  const sc = (j.score === null || j.score === undefined) ? '—' : j.score;
+  const bucket = (j.score === null || j.score === undefined) ? '' : `s-${Math.floor(j.score / 20)}`;
+  $('jobScore').textContent = sc;
+  $('jobScore').className = 'score ' + bucket;
+  $('jobDesc').textContent = j.description || '(no description)';
+
+  // Status buttons
+  const bar = $('jobStatusBar');
+  bar.innerHTML = ['new', 'interested', 'applied', 'skipped', 'excluded']
+    .map(s => `<button data-status="${s}" class="${j.status === s ? 'active' : ''}">${s}</button>`).join('');
+  bar.querySelectorAll('button').forEach(b => {
+    b.addEventListener('click', async () => {
+      const newStatus = b.dataset.status;
+      j.status = newStatus;
+      await jobDoc(state.currentJobKey).set({ status: newStatus }, { merge: true });
+      renderJobDetail();
+      updateCounts();
+      toast(`Marked as ${newStatus}`, 'ok');
+    });
+  });
+
+  // Cover letter area
+  const wrap = $('coverLetterWrap');
+  if (!j.coverLetter) {
+    wrap.innerHTML = `<button class="btn primary" id="draftBtn">Draft tailored cover letter</button>`;
+    $('draftBtn').addEventListener('click', () => draftCoverLetter());
+  } else {
+    wrap.innerHTML = `
+      <textarea id="coverLetterTxt" rows="12" style="width:100%;background:var(--panel);color:var(--ink);border:1px solid var(--line);padding:12px;border-radius:8px;font-size:13px;line-height:1.55;font-family:inherit;resize:vertical">${escapeHtml(j.coverLetter)}</textarea>
+      <div class="row" style="margin-top:8px">
+        <button class="btn secondary" id="saveLetterBtn">Save edits</button>
+        <button class="btn ghost" id="redraftBtn">Regenerate</button>
+        <button class="btn ghost" id="copyLetterBtn">Copy</button>
+      </div>`;
+    $('saveLetterBtn').addEventListener('click', async () => {
+      j.coverLetter = $('coverLetterTxt').value;
+      await jobDoc(state.currentJobKey).set({ coverLetter: j.coverLetter }, { merge: true });
+      toast('Saved', 'ok');
+    });
+    $('redraftBtn').addEventListener('click', () => draftCoverLetter());
+    $('copyLetterBtn').addEventListener('click', () => {
+      navigator.clipboard.writeText($('coverLetterTxt').value);
+      toast('Copied', 'ok');
+    });
+  }
+}
+
+async function draftCoverLetter() {
+  const j = state.jobs[state.currentJobKey];
+  if (!j) return;
+  $('coverLetterWrap').innerHTML = `<div class="empty"><span class="spinner"></span>&nbsp; Drafting…</div>`;
+  try {
+    const res = await api('/cover-letter', { profile: profilePayload(), job: j });
+    j.coverLetter = res.text;
+    j.coverLetterModel = res.model;
+    await jobDoc(state.currentJobKey).set({ coverLetter: res.text, coverLetterModel: res.model }, { merge: true });
+    renderJobDetail();
+  } catch (e) {
+    toast('Draft failed: ' + e.message, 'err');
+    renderJobDetail();
+  }
+}
+
+$('backToJobs').addEventListener('click', (e) => {
+  e.preventDefault();
+  routeTo('jobs', state.currentStatus);
+});
+
+// ─────────────────────────────────────────────────────────────────────────
+// PROFILE FORM
+// ─────────────────────────────────────────────────────────────────────────
+$('saveProfileBtn').addEventListener('click', async () => {
+  state.profile = { ...state.profile, ...readProfileForm() };
+  try {
+    await saveProfileToFirestore();
+    toast('Profile saved', 'ok');
+  } catch (e) {
+    toast('Save failed: ' + e.message, 'err');
+  }
+});
+
+// ─────────────────────────────────────────────────────────────────────────
+// ROUTING (hash-based, no library)
+// #/jobs/new | #/jobs/interested | #/profile | #/job/<key>
+// ─────────────────────────────────────────────────────────────────────────
+function routeTo(view, status) {
+  if (view === 'jobs') {
+    location.hash = `#/jobs/${status || state.currentStatus}`;
+  } else if (view === 'profile') {
+    location.hash = `#/profile`;
+  } else if (view === 'job') {
+    // handled by openJob
+  }
+}
+
+function routeFromHash() {
+  const h = location.hash.slice(1) || '/jobs/new';
+  const parts = h.split('/').filter(Boolean);
+
+  // Hide all views
+  document.querySelectorAll('.view').forEach(v => hide(v));
+  // Clear active nav
+  document.querySelectorAll('.nav button').forEach(b => b.classList.remove('active'));
+
+  if (parts[0] === 'profile') {
+    show($('view-profile'));
+    document.querySelector('.nav button[data-view="profile"]')?.classList.add('active');
+    state.currentView = 'profile';
+  } else if (parts[0] === 'job' && parts[1]) {
+    state.currentJobKey = decodeURIComponent(parts[1]);
+    show($('view-job'));
+    renderJobDetail();
+    state.currentView = 'job';
+  } else {
+    // jobs/<status>
+    const status = parts[1] || 'new';
+    state.currentStatus = status;
+    state.currentView = 'jobs';
+    show($('view-jobs'));
+    document.querySelector(`.nav button[data-view="jobs"][data-status="${status}"]`)?.classList.add('active');
+    renderJobs();
+  }
+}
+
+window.addEventListener('hashchange', routeFromHash);
+
+document.querySelectorAll('.nav button').forEach(b => {
+  b.addEventListener('click', () => {
+    if (b.dataset.view === 'profile') routeTo('profile');
+    else if (b.dataset.view === 'jobs') routeTo('jobs', b.dataset.status);
+  });
+});
+
+// Warn if firebaseConfig hasn't been filled in
+if (firebaseConfig.apiKey === 'REPLACE_ME') {
+  document.body.innerHTML = `
+    <div class="gate"><div class="gate-card">
+      <div class="logo">⚠</div>
+      <h1>Firebase not configured</h1>
+      <p>Edit <code>app/index.html</code> and replace the <code>firebaseConfig</code> placeholder with your Firebase project's web config.<br><br>See the README's "Deploy" section for the full setup.</p>
+      <a class="btn primary" href="https://github.com/SNDP-Design/ZeeApply#deploy">Deploy guide ↗</a>
+    </div></div>`;
+}
+</script>
+
+</body>
+</html>

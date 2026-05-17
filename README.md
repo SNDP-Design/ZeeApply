@@ -1,89 +1,154 @@
 # ZeeApply
 
-Semi-autonomous job search: fetch postings from public job boards, rank them against your resume with Gemini, draft tailored cover letters, and queue applications for your review before you submit. No auto-submit, no scraping that violates ToS.
+Your private, designer-focused, AI-powered job hunter — built like [XGrowth](https://www.xgrowth.uno): static frontend on GitHub Pages, serverless backend on Cloudflare Workers, free forever, always on, no signup-of-the-month.
 
-## How it works
+**Architecture**
 
-1. **Fetch** — pulls jobs from free public APIs:
-   - **No key needed:** Greenhouse boards, Lever postings, RemoteOK, Remotive, Arbeitnow, Jobicy, WeWorkRemotely (design RSS), Working Nomads, Hacker News "Who is hiring" thread
-   - **Free key (optional):** Adzuna (Indeed-style aggregator), USAJobs (US federal jobs)
-   Keyword-driven sources (Adzuna, USAJobs) use your profile's `target_role` as the search query.
-   Defaults are tuned for designer roles — see Profile → "Job titles to keep".
-2. **Score** — Gemini reads each job against your profile and assigns 0–100 with a one-line reason. Uses `gemini-2.5-flash` (free tier — no credit card needed).
-3. **Draft** — for any job you open, generate a tailored cover letter grounded in your resume.
-4. **Review** — mark `interested` / `applied` / `skipped`. Open the apply page in a new tab and paste your cover letter.
-
-LinkedIn / Indeed adapters are intentionally **not** included in the MVP — they require fragile session-cookie scraping. Phase 2.
-
-## Setup
-
-Dependencies are already installed to your user site-packages (`~/Library/Python/3.9/`). To run:
-
-```bash
-cd "ZeeApply"
-cp .env.example .env
-# Edit .env: set GEMINI_API_KEY (get one free at https://aistudio.google.com/apikey)
-
-/usr/bin/python3 -c "from uvicorn import run; run('app.main:app', host='127.0.0.1', port=8000, reload=True)"
+```
+┌──────────────────────────┐      ┌──────────────────────────┐
+│  GitHub Pages (static)   │      │  Cloudflare Worker (JS)  │
+│                          │      │                          │
+│  /            landing    │      │  /fetch-jobs   sources   │
+│  /app/        the app    │ ───▶ │  /score        Gemini    │
+│                          │      │  /cover-letter Gemini    │
+│  Firebase Auth + store   │      │                          │
+└──────────────────────────┘      └──────────────────────────┘
+        │                                    │
+        ▼                                    ▼
+   Per-user Firestore               Public job APIs +
+   (your profile, jobs,             Google Gemini
+    cover letters)                  (with 4-model fallback)
 ```
 
-Open http://localhost:8000.
+**What it does**
 
-If you'd rather use a venv:
+1. **Aggregates** designer jobs from 8 free public sources: Greenhouse (15+ companies), Lever (Palantir, Mistral), RemoteOK, Remotive, Arbeitnow, Jobicy, WeWorkRemotely (design RSS), Working Nomads.
+2. **Filters** to your target titles (`ui designer`, `product designer`, etc.) before anything touches your storage.
+3. **Auto-excludes** US-only jobs (citizenship, security clearance, ITAR, no-sponsorship language) when you're based outside the US.
+4. **Scores** each job 0–100 with Gemini against your resume, with a one-line "why" reason.
+5. **Drafts** tailored 180-word cover letters on demand for high-scoring jobs.
+6. **Tracks** every job through `new → interested → applied / skipped` in your private Firestore.
+
+**Privacy:** Your resume and pipeline are stored in your own Firestore under your Google account. No shared database. Resume only ever leaves your browser when you trigger a scoring call (sent to Gemini via the Worker; never stored).
+
+**Cost:** $0/month. GitHub Pages + Cloudflare Workers + Firebase Spark + Gemini free tier together cover thousands of jobs/day.
+
+---
+
+## Local development
 
 ```bash
-python3 -m venv .venv && source .venv/bin/activate
-pip install -r requirements.txt
-uvicorn app.main:app --reload --port 8000
+# Backend (Cloudflare Worker) — terminal 1
+cd worker
+npm install
+npx wrangler dev --port 8787 --local
+
+# Frontend — terminal 2
+cd ..
+python3 -m http.server 8000
+
+# Open http://localhost:8000
 ```
 
-## First-run flow
+The app auto-detects `localhost` and points at the local Worker at `http://127.0.0.1:8787`. For scoring + cover-letter calls to work locally, set the secret:
 
-1. Go to **Profile** and paste your resume + target role + locations + keywords.
-2. Click **Fetch jobs** in the nav (pulls ~hundreds of postings; takes 10-30s).
-3. Click **Score new** (Gemini scores in batches of 25; rerun until "remaining" is 0).
-4. Browse the ranked list. Open a high-scoring job, click **Draft tailored cover letter**, edit, mark **Applied** after you submit.
+```bash
+cd worker
+npx wrangler secret put GEMINI_API_KEY    # paste your AIza... key
+```
 
-## Adding companies
+Get a free Gemini key at https://aistudio.google.com/apikey.
 
-Edit `app/sources/__init__.py` and add Greenhouse / Lever slugs. The slug is the path segment in their board URL:
-- `boards.greenhouse.io/anthropic` → `anthropic`
-- `jobs.lever.co/figma` → `figma`
+---
 
-## Deploy to Render (public URL)
+## Deploy (one-time, ~25 min)
 
-A `render.yaml` blueprint is included. To go live:
+### 1. Firebase project (~10 min)
 
-1. Sign up at https://render.com (free) and connect your GitHub.
-2. Dashboard → **New +** → **Blueprint** → pick the `ZeeApply` repo.
-3. Render reads `render.yaml` and prompts for env vars. Set:
-   - `GEMINI_API_KEY` — your Gemini API key (free at https://aistudio.google.com/apikey)
-   - `APP_USERNAME` — login name (e.g. `sandeep`)
-   - `APP_PASSWORD` — strong password
-   - Optional: Adzuna / USAJobs keys (skip if you don't have them)
-4. Click **Apply**. First build takes ~5 min; subsequent deploys ~1 min.
-5. Your URL appears at the top of the service page: `https://zeeapply-xxxx.onrender.com`. Login with the username/password you set.
+1. Open https://console.firebase.google.com → **Add project** → name it `zeeapply` (or anything). Disable Google Analytics for simplicity.
+2. Left sidebar → **Authentication** → **Get started** → enable **Google** as a sign-in provider.
+3. Left sidebar → **Firestore Database** → **Create database** → start in **production mode** → pick a region close to you.
+4. Firestore → **Rules** → paste this and **Publish**:
+   ```
+   rules_version = '2';
+   service cloud.firestore {
+     match /databases/{database}/documents {
+       match /users/{userId}/{document=**} {
+         allow read, write: if request.auth != null && request.auth.uid == userId;
+       }
+     }
+   }
+   ```
+   This makes each user's data accessible only to themselves.
+5. **Project Settings** (gear icon) → scroll to **Your apps** → click `</>` web → register the app (name: `ZeeApply`).
+6. Copy the `firebaseConfig` object Firebase shows you.
+7. Open `app/index.html`, find the `const firebaseConfig = { … }` block near the bottom, paste your values in.
+8. Project Settings → **Authorized domains** → add `sndp-design.github.io` (or your custom domain) so Google sign-in works from production.
 
-**Free tier limitations:**
-- App **sleeps after 15 min idle**; first request after sleep takes 30–50s to wake.
-- **No persistent disk** — SQLite resets on every redeploy or wake-from-sleep. Your profile and fetched jobs will need re-entering. Fix: upgrade to Render's $7/mo disk, or swap SQLite for Render's free Postgres tier (90-day expiration, then $7/mo).
+### 2. Cloudflare Worker (~5 min)
 
-## Optional API keys
+```bash
+cd worker
+npx wrangler login        # opens browser; sign in / sign up with Cloudflare (free)
+npx wrangler secret put GEMINI_API_KEY    # paste your Gemini key
+npx wrangler deploy
+```
 
-Both add real value but are entirely optional — the app runs fine without them.
+Wrangler prints the Worker URL — looks like `https://zeeapply-api.<your-subdomain>.workers.dev`. Copy it.
 
-**Adzuna** (broad aggregator, covers Indeed-style listings; ~100 jobs/fetch):
-1. Sign up at https://developer.adzuna.com (free, 250 calls/month)
-2. Add `ADZUNA_APP_ID` and `ADZUNA_APP_KEY` to `.env`
-3. Optional: `ADZUNA_COUNTRY=us` (or `gb`, `in`, `ca`, `au`, `de`, `fr`, …)
+### 3. Wire frontend to production Worker
 
-**USAJobs** (US federal government roles):
-1. Request an API key at https://developer.usajobs.gov/APIRequest/Index (free, instant)
-2. Add `USAJOBS_EMAIL` (the email you registered) and `USAJOBS_API_KEY` to `.env`
+Open `app/index.html`, find:
+```js
+const API_BASE = (location.hostname === 'localhost' || …)
+  ? 'http://127.0.0.1:8787'
+  : 'https://zeeapply-api.YOUR_SUBDOMAIN.workers.dev';
+```
+Replace `YOUR_SUBDOMAIN` with what Wrangler gave you.
 
-## Phase 2 ideas (not built)
+Also open `worker/src/index.js`, find `ALLOWED_ORIGINS`, and confirm your GitHub Pages domain (`https://sndp-design.github.io`) is listed. Add a custom domain there too if you point one at the site. Re-deploy after edits: `npx wrangler deploy`.
 
-- LinkedIn adapter (requires `li_at` cookie; fragile)
-- Ashby + Workable adapters
-- Scheduled daily fetch + email digest
-- Workday and Taleo (these are the hard ones — every install is custom)
+### 4. GitHub Pages (~5 min)
+
+```bash
+git add -A && git commit -m "Wire prod Firebase + Worker URLs" && git push
+```
+
+Then on GitHub: **Settings → Pages → Source: `main` branch / `/` root → Save**.
+
+After ~1 min, your app is live at:
+- Landing: `https://sndp-design.github.io/ZeeApply/`
+- App: `https://sndp-design.github.io/ZeeApply/app/`
+
+**(Optional) Custom domain:** drop a `CNAME` file at the repo root with your domain (e.g. `zeeapply.uno`), and configure DNS to point at `sndp-design.github.io`. Then add the same domain to Firebase's Authorized Domains and the Worker's `ALLOWED_ORIGINS`.
+
+---
+
+## File layout
+
+```
+ZeeApply/
+├── index.html              ← landing page (GitHub Pages serves this at /)
+├── app/index.html          ← the actual webapp (auth + UI + Firestore + API calls)
+├── worker/
+│   ├── src/index.js        ← Cloudflare Worker: job sources + Gemini proxy
+│   ├── wrangler.toml       ← Cloudflare config
+│   └── package.json
+├── assets/                 ← logos / images (optional)
+├── .nojekyll               ← tells GitHub Pages "don't run Jekyll"
+└── README.md
+```
+
+That's it. No build step. Edit, push, refresh.
+
+---
+
+## Gemini fallback chain
+
+`worker/src/index.js` tries models in this order:
+
+```
+gemini-3-flash-preview  →  gemini-2.5-flash  →  gemini-2.5-flash-lite  →  gemini-2.0-flash
+```
+
+If a model 429s (rate limit), 503s (server overload), 404s (not yet released — likely for `gemini-3-flash-preview`), or returns `RESOURCE_EXHAUSTED`, the next one tries automatically. Auth errors and malformed requests surface immediately. This means scoring keeps working even when one model hits daily quota.
