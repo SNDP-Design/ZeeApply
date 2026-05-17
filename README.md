@@ -50,6 +50,24 @@ Edit `app/sources/__init__.py` and add Greenhouse / Lever slugs. The slug is the
 - `boards.greenhouse.io/anthropic` → `anthropic`
 - `jobs.lever.co/figma` → `figma`
 
+## Deploy to Render (public URL)
+
+A `render.yaml` blueprint is included. To go live:
+
+1. Sign up at https://render.com (free) and connect your GitHub.
+2. Dashboard → **New +** → **Blueprint** → pick the `job-hunter` repo.
+3. Render reads `render.yaml` and prompts for env vars. Set:
+   - `ANTHROPIC_API_KEY` — your Claude API key
+   - `APP_USERNAME` — login name (e.g. `sandeep`)
+   - `APP_PASSWORD` — strong password
+   - Optional: Adzuna / USAJobs keys (skip if you don't have them)
+4. Click **Apply**. First build takes ~5 min; subsequent deploys ~1 min.
+5. Your URL appears at the top of the service page: `https://job-hunter-xxxx.onrender.com`. Login with the username/password you set.
+
+**Free tier limitations:**
+- App **sleeps after 15 min idle**; first request after sleep takes 30–50s to wake.
+- **No persistent disk** — SQLite resets on every redeploy or wake-from-sleep. Your profile and fetched jobs will need re-entering. Fix: upgrade to Render's $7/mo disk, or swap SQLite for Render's free Postgres tier (90-day expiration, then $7/mo).
+
 ## Optional API keys
 
 Both add real value but are entirely optional — the app runs fine without them.
