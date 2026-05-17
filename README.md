@@ -1,4 +1,4 @@
-# Job Hunter
+# ZeeApply
 
 Semi-autonomous job search: fetch postings from public job boards, rank them against your resume with Gemini, draft tailored cover letters, and queue applications for your review before you submit. No auto-submit, no scraping that violates ToS.
 
@@ -20,7 +20,7 @@ LinkedIn / Indeed adapters are intentionally **not** included in the MVP — the
 Dependencies are already installed to your user site-packages (`~/Library/Python/3.9/`). To run:
 
 ```bash
-cd "job-hunter"
+cd "ZeeApply"
 cp .env.example .env
 # Edit .env: set GEMINI_API_KEY (get one free at https://aistudio.google.com/apikey)
 
@@ -55,14 +55,14 @@ Edit `app/sources/__init__.py` and add Greenhouse / Lever slugs. The slug is the
 A `render.yaml` blueprint is included. To go live:
 
 1. Sign up at https://render.com (free) and connect your GitHub.
-2. Dashboard → **New +** → **Blueprint** → pick the `job-hunter` repo.
+2. Dashboard → **New +** → **Blueprint** → pick the `ZeeApply` repo.
 3. Render reads `render.yaml` and prompts for env vars. Set:
    - `GEMINI_API_KEY` — your Gemini API key (free at https://aistudio.google.com/apikey)
    - `APP_USERNAME` — login name (e.g. `sandeep`)
    - `APP_PASSWORD` — strong password
    - Optional: Adzuna / USAJobs keys (skip if you don't have them)
 4. Click **Apply**. First build takes ~5 min; subsequent deploys ~1 min.
-5. Your URL appears at the top of the service page: `https://job-hunter-xxxx.onrender.com`. Login with the username/password you set.
+5. Your URL appears at the top of the service page: `https://zeeapply-xxxx.onrender.com`. Login with the username/password you set.
 
 **Free tier limitations:**
 - App **sleeps after 15 min idle**; first request after sleep takes 30–50s to wake.

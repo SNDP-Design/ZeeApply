@@ -22,7 +22,7 @@ def _strip_html(html: str) -> str:
 async def fetch_weworkremotely() -> list[dict]:
     async with httpx.AsyncClient(
         timeout=20,
-        headers={"User-Agent": "job-hunter/0.1 (personal use)"},
+        headers={"User-Agent": "ZeeApply/0.1 (personal use)"},
         follow_redirects=True,
     ) as client:
         r = await client.get(RSS_URL)

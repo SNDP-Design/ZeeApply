@@ -13,7 +13,7 @@ def _strip_html(html: str) -> str:
 async def fetch_arbeitnow() -> list[dict]:
     async with httpx.AsyncClient(
         timeout=20,
-        headers={"User-Agent": "job-hunter/0.1 (personal use)"},
+        headers={"User-Agent": "ZeeApply/0.1 (personal use)"},
     ) as client:
         r = await client.get(API)
         r.raise_for_status()

@@ -18,7 +18,7 @@ load_dotenv()
 BASE = Path(__file__).parent
 templates = Jinja2Templates(directory=str(BASE / "templates"))
 
-app = FastAPI(title="Job Hunter")
+app = FastAPI(title="ZeeApply")
 auth.install(app)
 app.mount("/static", StaticFiles(directory=str(BASE / "static")), name="static")
 

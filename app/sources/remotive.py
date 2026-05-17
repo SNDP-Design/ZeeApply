@@ -16,7 +16,7 @@ async def fetch_remotive(category: str = DEFAULT_CATEGORY) -> list[dict]:
     params = {"category": category} if category else None
     async with httpx.AsyncClient(
         timeout=20,
-        headers={"User-Agent": "job-hunter/0.1 (personal use)"},
+        headers={"User-Agent": "ZeeApply/0.1 (personal use)"},
     ) as client:
         r = await client.get(API, params=params)
         r.raise_for_status()

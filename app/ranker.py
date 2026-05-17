@@ -1,20 +1,53 @@
 """Gemini-powered job scorer and cover-letter drafter.
 
-Uses google-genai SDK (the new one, not the deprecated google-generativeai).
-gemini-2.5-flash sits comfortably in Google's free tier for hobbyist volumes
-(thousands of jobs/day). Scoring uses native JSON-output mode so we get
-structured results without regex parsing.
+Uses google-genai SDK with a model fallback chain so that the call survives
+when the preferred model is rate-limited, quota-exhausted, temporarily down,
+or simply not yet released. The first model that succeeds is used; failed
+models go into a short per-process cooldown so we don't keep hammering them.
+
+Chain (top = preferred):
+    gemini-3-flash-preview   (latest preview — may 404 until Google publishes it)
+    gemini-2.5-flash         (current stable workhorse)
+    gemini-2.5-flash-lite    (5x higher quota; lower quality)
+    gemini-2.0-flash         (older but very reliable)
+
+Scoring uses native JSON-output mode (response_schema) so we get strict JSON
+without regex parsing.
 """
 from __future__ import annotations
 
 import json
 import os
-from typing import Optional
+import sys
+import time
+from typing import Callable, Optional
 
 from google import genai
 from google.genai import types
 
-MODEL = "gemini-2.5-flash"
+# Try models in this exact order. Add/remove names to change the strategy.
+MODEL_FALLBACK_CHAIN: list[str] = [
+    "gemini-3-flash-preview",
+    "gemini-2.5-flash",
+    "gemini-2.5-flash-lite",
+    "gemini-2.0-flash",
+]
+
+# When a model returns a recoverable error, skip it for this many seconds.
+# Keeps per-call latency low when one model is consistently failing.
+_COOLDOWN_SECONDS = 60
+_cooldown_until: dict[str, float] = {}
+
+# Substrings that mean "try the next model" rather than "fail loudly".
+# Matched against both the exception message and any HTTP status string.
+_RECOVERABLE_TOKENS = (
+    "429", "rate", "resource_exhausted", "quota",
+    "503", "unavailable", "overloaded",
+    "404", "not_found", "not found", "model not found", "does not exist",
+    "permission_denied",  # some preview models 403 for accounts without access
+    "403",
+)
+
 _client: Optional[genai.Client] = None
 
 
@@ -27,6 +60,44 @@ def client() -> genai.Client:
             )
         _client = genai.Client(api_key=os.environ["GEMINI_API_KEY"])
     return _client
+
+
+def _is_recoverable(exc: BaseException) -> bool:
+    msg = str(exc).lower()
+    if any(tok in msg for tok in _RECOVERABLE_TOKENS):
+        return True
+    # google-genai raises ClientError / ServerError with a .status_code or .code attr
+    code = getattr(exc, "status_code", None) or getattr(exc, "code", None)
+    if code in (429, 503, 404, 403):
+        return True
+    return False
+
+
+def _call_with_fallback(make_call: Callable[[str], object]) -> tuple[object, str]:
+    """Walk the model chain. Returns (response, model_name_used).
+
+    `make_call(model_name)` should make exactly one generate_content call.
+    """
+    now = time.time()
+    last_err: Optional[BaseException] = None
+    for model in MODEL_FALLBACK_CHAIN:
+        if _cooldown_until.get(model, 0) > now:
+            continue
+        try:
+            return make_call(model), model
+        except Exception as e:
+            if _is_recoverable(e):
+                _cooldown_until[model] = time.time() + _COOLDOWN_SECONDS
+                last_err = e
+                # Brief log so users can see fallback happening in the server output.
+                print(f"[ranker] {model} unavailable ({type(e).__name__}: {str(e)[:120]}); trying next", file=sys.stderr)
+                continue
+            # Auth errors, malformed requests, etc. — surface immediately.
+            raise
+    # All models in cooldown or all raised recoverable errors.
+    raise RuntimeError(
+        f"All Gemini models in the fallback chain are unavailable. Last error: {last_err}"
+    )
 
 
 SCORE_SYSTEM = """You are a precise job-fit evaluator helping a candidate prioritize applications.
@@ -105,18 +176,22 @@ def _job_text(job: dict) -> str:
 
 def score_job(profile: dict, job: dict) -> tuple[int, str]:
     prompt = f"CANDIDATE PROFILE\n{_profile_text(profile)}\n\nJOB\n{_job_text(job)}"
-    response = client().models.generate_content(
-        model=MODEL,
-        contents=prompt,
-        config=types.GenerateContentConfig(
-            system_instruction=SCORE_SYSTEM,
-            response_mime_type="application/json",
-            response_schema=_SCORE_SCHEMA,
-            max_output_tokens=300,
-            temperature=0.2,
-        ),
-    )
-    raw = (response.text or "").strip()
+
+    def call(model: str):
+        return client().models.generate_content(
+            model=model,
+            contents=prompt,
+            config=types.GenerateContentConfig(
+                system_instruction=SCORE_SYSTEM,
+                response_mime_type="application/json",
+                response_schema=_SCORE_SCHEMA,
+                max_output_tokens=300,
+                temperature=0.2,
+            ),
+        )
+
+    response, _model_used = _call_with_fallback(call)
+    raw = (getattr(response, "text", None) or "").strip()
     if not raw:
         return 0, "Empty response from Gemini"
     try:
@@ -130,13 +205,17 @@ def score_job(profile: dict, job: dict) -> tuple[int, str]:
 
 def draft_cover_letter(profile: dict, job: dict) -> str:
     prompt = f"CANDIDATE\n{_profile_text(profile)}\n\nJOB\n{_job_text(job)}"
-    response = client().models.generate_content(
-        model=MODEL,
-        contents=prompt,
-        config=types.GenerateContentConfig(
-            system_instruction=COVER_SYSTEM,
-            max_output_tokens=800,
-            temperature=0.7,
-        ),
-    )
-    return (response.text or "").strip()
+
+    def call(model: str):
+        return client().models.generate_content(
+            model=model,
+            contents=prompt,
+            config=types.GenerateContentConfig(
+                system_instruction=COVER_SYSTEM,
+                max_output_tokens=800,
+                temperature=0.7,
+            ),
+        )
+
+    response, _model_used = _call_with_fallback(call)
+    return (getattr(response, "text", None) or "").strip()

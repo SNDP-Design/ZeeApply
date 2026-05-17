@@ -24,7 +24,7 @@ def _strip_html(html: str) -> str:
 async def fetch_workingnomads() -> list[dict]:
     async with httpx.AsyncClient(
         timeout=25,
-        headers={"User-Agent": "job-hunter/0.1 (personal use)"},
+        headers={"User-Agent": "ZeeApply/0.1 (personal use)"},
     ) as client:
         r = await client.get(API)
         r.raise_for_status()

@@ -16,7 +16,7 @@ async def fetch_jobicy(industry: str = DEFAULT_INDUSTRY) -> list[dict]:
     params = {"industry": industry, "count": 50} if industry else {"count": 50}
     async with httpx.AsyncClient(
         timeout=20,
-        headers={"User-Agent": "job-hunter/0.1 (personal use)"},
+        headers={"User-Agent": "ZeeApply/0.1 (personal use)"},
     ) as client:
         r = await client.get(API, params=params)
         r.raise_for_status()

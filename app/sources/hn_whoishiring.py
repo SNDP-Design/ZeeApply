@@ -55,7 +55,7 @@ async def _get_json(client: httpx.AsyncClient, path: str):
 async def fetch_hn_whoishiring(max_comments: int = 200, concurrency: int = 20) -> list[dict]:
     async with httpx.AsyncClient(
         timeout=20,
-        headers={"User-Agent": "job-hunter/0.1 (personal use)"},
+        headers={"User-Agent": "ZeeApply/0.1 (personal use)"},
     ) as client:
         user = await _get_json(client, "user/whoishiring")
         submitted = user.get("submitted") or []

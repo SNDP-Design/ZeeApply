@@ -1,6 +1,6 @@
 services:
   - type: web
-    name: job-hunter
+    name: zeeapply
     runtime: python
     plan: free
     buildCommand: pip install -r requirements.txt

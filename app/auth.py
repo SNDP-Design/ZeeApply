@@ -56,7 +56,7 @@ class BasicAuthMiddleware(BaseHTTPMiddleware):
         return Response(
             "Authentication required",
             status_code=401,
-            headers={"WWW-Authenticate": 'Basic realm="job-hunter"'},
+            headers={"WWW-Authenticate": 'Basic realm="ZeeApply"'},
         )
 
 
