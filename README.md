@@ -33,6 +33,8 @@ Your private, designer-focused, AI-powered job hunter — built like [XGrowth](h
 
 **Cost:** $0/month. GitHub Pages + Cloudflare Workers + Firebase Spark + Gemini free tier together cover thousands of jobs/day.
 
+**Apply faster:** the optional [`extension/`](./extension) Chrome extension auto-fills name, email, links, work-auth, and your ZeeApply-drafted cover letter on Greenhouse / Lever / Ashby apply pages — installed in 1 minute via Chrome's developer mode. See [extension/README.md](./extension/README.md).
+
 ---
 
 ## Local development
