@@ -73,13 +73,18 @@ Get a free Gemini key at https://aistudio.google.com/apikey.
    rules_version = '2';
    service cloud.firestore {
      match /databases/{database}/documents {
+       // Parent user doc (profile)
+       match /users/{userId} {
+         allow read, write: if request.auth != null && request.auth.uid == userId;
+       }
+       // All subcollections (jobs, etc.)
        match /users/{userId}/{document=**} {
          allow read, write: if request.auth != null && request.auth.uid == userId;
        }
      }
    }
    ```
-   This makes each user's data accessible only to themselves.
+   This makes each user's data — both the parent profile doc AND every subcollection doc — accessible only to themselves.
 5. **Project Settings** (gear icon) → scroll to **Your apps** → click `</>` web → register the app (name: `ZeeApply`).
 6. Copy the `firebaseConfig` object Firebase shows you.
 7. Open `app/index.html`, find the `const firebaseConfig = { … }` block near the bottom, paste your values in.

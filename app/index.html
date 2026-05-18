@@ -759,12 +759,30 @@ $('backToJobs').addEventListener('click', (e) => {
 // PROFILE FORM
 // ─────────────────────────────────────────────────────────────────────────
 $('saveProfileBtn').addEventListener('click', async () => {
-  state.profile = { ...state.profile, ...readProfileForm() };
+  console.log('[ZeeApply] Save profile clicked');
+  if (!state.user) {
+    toast('Sign in first', 'err');
+    console.warn('[ZeeApply] state.user is null — sign in did not complete');
+    return;
+  }
+  const form = readProfileForm();
+  console.log('[ZeeApply] Form values to save:', form);
+  state.profile = { ...state.profile, ...form };
+  const btn = $('saveProfileBtn');
+  btn.disabled = true;
+  const orig = btn.textContent;
+  btn.textContent = 'Saving…';
   try {
     await saveProfileToFirestore();
+    console.log('[ZeeApply] ✓ Saved to Firestore at users/' + state.user.uid);
     toast('Profile saved', 'ok');
   } catch (e) {
-    toast('Save failed: ' + e.message, 'err');
+    console.error('[ZeeApply] Firestore save failed:', e);
+    const detail = `${e.code || e.name || 'Error'}: ${e.message || e}`;
+    toast('Save failed — ' + detail, 'err');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = orig;
   }
 });
 
