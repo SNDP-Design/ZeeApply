@@ -19,7 +19,7 @@
     --line:#1f1f1f;--chip:#161616;
   }
   *{box-sizing:border-box}
-  html,body{margin:0;padding:0;background:radial-gradient(1200px 600px at 80% -10%,#1a1a1a 0%,transparent 60%),radial-gradient(900px 500px at -10% 110%,#101010 0%,transparent 60%),var(--bg);color:var(--ink);font:14px/1.55 -apple-system,BlinkMacSystemFont,"SF Pro Text","Inter",system-ui,sans-serif;-webkit-font-smoothing:antialiased}
+  html,body{margin:0;padding:0;background:radial-gradient(1200px 600px at 80% -10%,#1a1a1a 0%,transparent 60%),radial-gradient(900px 500px at -10% 110%,#101010 0%,transparent 60%),var(--bg);color:var(--ink);font:16px/1.55 system-ui,sans-serif;-webkit-font-smoothing:antialiased}
   a{color:var(--accent-2);text-decoration:none}
   a:hover{color:var(--ink)}
   button{font:inherit;cursor:pointer}
@@ -85,7 +85,7 @@
   .field .hint{display:block;font-size:11px;color:var(--muted);margin-top:5px}
   .field input[type=text], .field input[type=number], .field textarea{width:100%;background:var(--panel);color:var(--ink);border:1px solid var(--line);padding:9px 11px;border-radius:7px;font:inherit;transition:border-color .15s}
   .field input:focus, .field textarea:focus{outline:0;border-color:#444}
-  .field textarea{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;resize:vertical;min-height:80px}
+  .field textarea{font-family:system-ui,sans-serif;font-size:16px;resize:vertical;min-height:80px}
 
   /* Job list */
   .toolbar{display:flex;align-items:center;gap:8px;margin:14px 0 8px;flex-wrap:wrap}
@@ -97,14 +97,14 @@
   .score.s-4, .score.s-5{background:rgba(74,222,128,.16);color:var(--good)}
   .score.s-3{background:rgba(251,191,36,.16);color:var(--warn)}
   .score.s-0, .score.s-1, .score.s-2{background:rgba(248,113,113,.14);color:var(--bad)}
-  .jobrow .meta .title{font-weight:600;font-size:14px;color:var(--ink);margin-bottom:2px;line-height:1.3}
+  .jobrow .meta .title{font-weight:600;font-size:16px;color:var(--ink);margin-bottom:2px;line-height:1.3}
   .jobrow .meta .sub{font-size:12px;color:var(--muted)}
   .jobrow .meta .reason{font-size:12px;color:#cdcdcd;margin-top:4px;line-height:1.4}
   .jobrow .arrow{color:var(--muted);font-size:18px}
 
   /* Job detail */
   .row{display:flex;gap:14px;align-items:center;flex-wrap:wrap}
-  .desc{white-space:pre-wrap;background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:14px;font-size:13px;max-height:500px;overflow:auto;line-height:1.55}
+  .desc{white-space:pre-wrap;background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:14px;font-size:16px;max-height:500px;overflow:auto;line-height:1.55}
   .status-bar{display:flex;gap:6px;margin:12px 0;flex-wrap:wrap}
   .status-bar button{padding:6px 12px;border-radius:7px;background:transparent;border:1px solid var(--line);color:var(--muted);font-size:12px;text-transform:capitalize}
   .status-bar button:hover{color:var(--ink);border-color:#444}
@@ -797,7 +797,7 @@ function renderJobDetail() {
     $('draftBtn').addEventListener('click', () => draftCoverLetter());
   } else {
     wrap.innerHTML = `
-      <textarea id="coverLetterTxt" rows="12" style="width:100%;background:var(--panel);color:var(--ink);border:1px solid var(--line);padding:12px;border-radius:8px;font-size:13px;line-height:1.55;font-family:inherit;resize:vertical">${escapeHtml(j.coverLetter)}</textarea>
+      <textarea id="coverLetterTxt" rows="12" style="width:100%;background:var(--panel);color:var(--ink);border:1px solid var(--line);padding:12px;border-radius:8px;font-size:16px;line-height:1.55;font-family:system-ui,sans-serif;resize:vertical">${escapeHtml(j.coverLetter)}</textarea>
       <div class="row" style="margin-top:8px">
         <button class="btn secondary" id="saveLetterBtn">Save edits</button>
         <button class="btn ghost" id="redraftBtn">Regenerate</button>
