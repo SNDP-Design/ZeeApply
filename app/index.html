@@ -327,22 +327,18 @@
 // CONFIG — fill these in for your own Firebase + Worker
 // ─────────────────────────────────────────────────────────────────────────
 const firebaseConfig = {
-  // REPLACE these with your own values from
-  // Firebase Console → Project Settings → Your apps → Web app config
-  apiKey: 'REPLACE_ME',
-  authDomain: 'REPLACE_ME.firebaseapp.com',
-  projectId: 'REPLACE_ME',
-  storageBucket: 'REPLACE_ME.appspot.com',
-  messagingSenderId: 'REPLACE_ME',
-  appId: 'REPLACE_ME',
+  apiKey: "AIzaSyDl2dosiomIp993XJl3Uom0B8LbGXyCias",
+  authDomain: "zeeapply-037.firebaseapp.com",
+  projectId: "zeeapply-037",
+  storageBucket: "zeeapply-037.firebasestorage.app",
+  messagingSenderId: "757358228364",
+  appId: "1:757358228364:web:6fba64d5c6c4d3a82adca9",
 };
 
 // Worker base URL. Auto-detects local dev (port 8787 from `npx wrangler dev`).
-// In production, replace 'https://zeeapply-api.YOUR_SUBDOMAIN.workers.dev'
-// with the URL Wrangler printed after `wrangler deploy`.
 const API_BASE = (location.hostname === 'localhost' || location.hostname === '127.0.0.1')
   ? 'http://127.0.0.1:8787'
-  : 'https://zeeapply-api.YOUR_SUBDOMAIN.workers.dev';
+  : 'https://zeeapply-api.xgrowth.workers.dev';
 
 // Default designer-focused profile applied to new users on first sign-in.
 const DEFAULT_PROFILE = {
