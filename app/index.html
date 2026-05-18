@@ -296,6 +296,7 @@
           <h2 id="jobsTitle">Jobs</h2>
         </div>
         <div class="actions">
+          <button class="btn ghost" id="resetNewBtn" title="Delete every job currently in 'New' so you can re-fetch a fresh feed. Interested / Applied / Skipped / Excluded are kept.">↻ Reset feed</button>
           <button class="btn secondary" id="fetchBtn">Fetch jobs</button>
           <button class="btn primary" id="scoreBtn">Score new</button>
         </div>
@@ -715,6 +716,52 @@ $('scoreBtn').addEventListener('click', async () => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────
+// RESET 'NEW' FEED
+// Bulk-deletes everything in users/{uid}/jobs where status === 'new'.
+// Interested / Applied / Skipped / Excluded are preserved. Useful when an
+// upstream Worker change (e.g. better description formatting) means you
+// want a fresh pull without manually clearing rows.
+// ─────────────────────────────────────────────────────────────────────────
+$('resetNewBtn').addEventListener('click', async () => {
+  const newKeys = Object.entries(state.jobs)
+    .filter(([_, j]) => j.status === 'new')
+    .map(([k]) => k);
+  if (!newKeys.length) {
+    toast("Nothing in 'New' to clear", 'err');
+    return;
+  }
+  const ok = confirm(
+    `Delete ${newKeys.length} jobs from 'New'?\n\n` +
+    `Your Interested / Applied / Skipped / Excluded jobs are kept.\n` +
+    `After this you can click 'Fetch jobs' to repopulate with the latest data.`
+  );
+  if (!ok) return;
+  const btn = $('resetNewBtn');
+  btn.disabled = true;
+  setStatusPill(`Deleting ${newKeys.length} jobs…`);
+  try {
+    // Firestore: 500 writes/batch. Use 400 for safety margin.
+    for (let i = 0; i < newKeys.length; i += 400) {
+      const chunk = newKeys.slice(i, i + 400);
+      const batch = db.batch();
+      for (const key of chunk) {
+        batch.delete(jobDoc(key));
+        delete state.jobs[key];
+      }
+      await batch.commit();
+    }
+    renderJobs();
+    setStatusPill(`✓ Cleared ${newKeys.length} jobs. Click 'Fetch jobs' to repopulate.`, '');
+    toast(`Cleared ${newKeys.length} jobs from 'New'`, 'ok');
+  } catch (e) {
+    setStatusPill('Reset failed', 'bad');
+    toast('Reset failed: ' + e.message, 'err');
+  } finally {
+    btn.disabled = false;
+  }
+});
+
+// ─────────────────────────────────────────────────────────────────────────
 // RENDER JOB LIST
 // ─────────────────────────────────────────────────────────────────────────
 function jobsForStatus(status) {
@@ -737,6 +784,8 @@ function renderJobs() {
   if (state.globalOnly) list = list.filter(j => j.globalFriendly);
   const wrap = $('joblist');
   const globalCount = jobsForStatus(state.currentStatus).filter(j => j.globalFriendly).length;
+  // Reset button is only meaningful in the 'new' bucket
+  $('resetNewBtn').classList.toggle('hidden', state.currentStatus !== 'new');
   $('jobsTitle').textContent = state.currentStatus.charAt(0).toUpperCase() + state.currentStatus.slice(1) + ' · ' + list.length;
   $('jobsMeta').textContent = `${globalCount} 🌍 worldwide-friendly`;
   if (!list.length) {
