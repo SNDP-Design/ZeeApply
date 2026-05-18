@@ -304,7 +304,7 @@
           <h2 id="jobTitle"></h2>
         </div>
         <div class="actions">
-          <button class="btn secondary" id="copyAndApplyBtn" title="Copies the cover letter to your clipboard, then opens the apply page. Then click the ZeeApply Chrome extension to fill the form.">📋 Copy letter + Open ↗</button>
+          <button class="btn secondary" id="copyAndApplyBtn" title="Copies the cover letter to your clipboard and opens the apply page in a new tab.">📋 Copy letter + Open ↗</button>
           <a class="btn secondary" id="jobOpenLink" target="_blank" rel="noopener">Open posting ↗</a>
         </div>
       </div>
@@ -838,9 +838,9 @@ $('backToJobs').addEventListener('click', (e) => {
   routeTo('jobs', state.currentStatus);
 });
 
-// "Copy letter + Open" — the bridge to the Apply Assistant extension.
-// Puts the cover letter on the clipboard, opens the apply URL in a new tab,
-// and shows a hint about what to do next.
+// "Copy letter + Open" — copies the cover letter to the clipboard and
+// opens the apply URL in a new tab in one click, so you can paste straight
+// into the company's form.
 $('copyAndApplyBtn').addEventListener('click', async () => {
   const j = state.jobs[state.currentJobKey];
   if (!j) return;
@@ -855,7 +855,7 @@ $('copyAndApplyBtn').addEventListener('click', async () => {
     return;
   }
   window.open(j.url || '#', '_blank', 'noopener');
-  toast('Cover letter copied · apply page opened in new tab. Now click the ZeeApply extension → paste → Fill this page', 'ok');
+  toast('Cover letter copied · apply page opened in a new tab.', 'ok');
 });
 
 // ─────────────────────────────────────────────────────────────────────────
