@@ -209,20 +209,40 @@ function decodeEntities(s) {
     .replace(/&#(\d+);/g, (_, n) => String.fromCharCode(parseInt(n, 10)));
 }
 
+// Block-level tags we want to convert into newlines so paragraph structure
+// survives the strip. Anything not in this list is just deleted.
+const BLOCK_CLOSE_RE = /<\/(?:p|div|li|h[1-6]|tr|blockquote|ul|ol|section|article)>/gi;
+const BR_RE = /<br\s*\/?>/gi;
+const LI_OPEN_RE = /<li[^>]*>/gi;
+
+function htmlToText(s) {
+  return s
+    .replace(BR_RE, '\n')
+    .replace(BLOCK_CLOSE_RE, '\n')
+    .replace(LI_OPEN_RE, '\n• ')
+    .replace(TAG_RE, '');
+}
+
 function stripHtml(s) {
   if (!s) return '';
   // Pre-truncate. We slice to 8KB downstream anyway, so processing a
   // 50KB blob is wasted CPU. This caps the worst-case work per call.
   const trimmed = s.length > 16000 ? s.slice(0, 16000) : s;
-  // First pass: decode entities then strip tags. Handles 99% of inputs.
-  let out = decodeEntities(trimmed).replace(TAG_RE, '');
+  // First pass: decode entities, convert block tags to newlines, strip rest.
+  let out = htmlToText(decodeEntities(trimmed));
   // Conditional second pass: only when double-encoding left behind entities
   // like &amp;nbsp; → &nbsp; that should have been resolved. Skipped for
   // most jobs, so the amortized CPU cost stays inside the free-tier limit.
   if (/&[a-z]+;|&#\d+;/i.test(out)) {
-    out = decodeEntities(out).replace(TAG_RE, '');
+    out = htmlToText(decodeEntities(out));
   }
-  return out.trim();
+  // Whitespace normalization: collapse runs of spaces, trim around newlines,
+  // cap at 2 consecutive newlines so paragraphs stay separated.
+  return out
+    .replace(/[ \t]+/g, ' ')
+    .replace(/ ?\n ?/g, '\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
 }
 
 const UA_HEADERS = { 'User-Agent': 'ZeeApply/0.1 (personal use)' };

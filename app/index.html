@@ -104,7 +104,24 @@
 
   /* Job detail */
   .row{display:flex;gap:14px;align-items:center;flex-wrap:wrap}
-  .desc{white-space:pre-wrap;background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:14px;font-size:16px;max-height:500px;overflow:auto;line-height:1.55}
+  /* Job description: readable prose, not code. Explicit system-ui so the
+     <pre> element doesn't fall back to the browser's monospace default.
+     Capped at ~72 characters per line which is the sweet spot for reading. */
+  .desc{
+    white-space:pre-wrap;
+    word-wrap:break-word;
+    font-family:system-ui,sans-serif;
+    font-size:16px;
+    line-height:1.65;
+    color:#dcdcdc;
+    background:var(--panel);
+    border:1px solid var(--line);
+    border-radius:10px;
+    padding:22px 26px;
+    max-width:72ch;
+    max-height:600px;
+    overflow:auto;
+  }
   .status-bar{display:flex;gap:6px;margin:12px 0;flex-wrap:wrap}
   .status-bar button{padding:6px 12px;border-radius:7px;background:transparent;border:1px solid var(--line);color:var(--muted);font-size:12px;text-transform:capitalize}
   .status-bar button:hover{color:var(--ink);border-color:#444}
