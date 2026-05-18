@@ -362,6 +362,22 @@ firebase.initializeApp(firebaseConfig);
 const fbAuth = firebase.auth();
 const db = firebase.firestore();
 
+// Force Firestore to use plain HTTP long-polling instead of its default
+// streaming WebChannel. Privacy extensions (uBlock, Brave Shields, AdGuard,
+// some corporate DNS) often let plain HTTP through but silently kill
+// streaming connections, causing writes to hang forever. These settings
+// make Firestore work in those environments at the cost of slightly more
+// per-request latency. MUST be called before any other db operation.
+try {
+  db.settings({
+    experimentalAutoDetectLongPolling: true,
+    useFetchStreams: false,
+  });
+  console.log('[ZeeApply] Firestore configured with auto-detect long-polling');
+} catch (e) {
+  console.warn('[ZeeApply] Could not set Firestore settings:', e);
+}
+
 // ─────────────────────────────────────────────────────────────────────────
 // STATE
 // ─────────────────────────────────────────────────────────────────────────
@@ -471,11 +487,28 @@ async function loadFromFirestore() {
   updateCounts();
 }
 
+// Promise-with-timeout helper. Throws if the underlying promise hasn't
+// settled within `ms` milliseconds — useful for catching silent hangs
+// caused by network/extension interception of Firestore calls.
+function withTimeout(promise, ms, label) {
+  let t;
+  const timeout = new Promise((_, reject) => {
+    t = setTimeout(() => reject(new Error(`Timed out after ${ms}ms (${label}). Likely a browser extension is blocking firestore.googleapis.com streaming. Try Incognito mode or disable the blocker on this site.`)), ms);
+  });
+  return Promise.race([promise.finally(() => clearTimeout(t)), timeout]);
+}
+
 async function saveProfileToFirestore() {
-  await userDoc().set({
-    profile: state.profile,
-    meta: { updatedAt: Date.now() },
-  }, { merge: true });
+  console.log('[ZeeApply] → writing profile to Firestore (users/' + state.user.uid + ')');
+  await withTimeout(
+    userDoc().set({
+      profile: state.profile,
+      meta: { updatedAt: Date.now() },
+    }, { merge: true }),
+    15000,
+    'profile save'
+  );
+  console.log('[ZeeApply] ← Firestore write acknowledged');
 }
 
 function populateProfileForm() {
