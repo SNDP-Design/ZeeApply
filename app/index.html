@@ -45,6 +45,13 @@
   .nav .count{margin-left:auto;font-size:11px;color:var(--muted);background:var(--chip);padding:2px 7px;border-radius:999px;border:1px solid var(--line)}
   .nav button.active .count{color:var(--ink)}
 
+  /* External links: same shape as nav buttons but visually subdued, with a
+     hover-only arrow to signal "leaves the app". */
+  .nav .ext-link{display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:8px;text-decoration:none;color:var(--muted);font-size:12.5px;font-weight:500;transition:.12s;border:1px solid transparent;position:relative}
+  .nav .ext-link:hover{color:var(--ink);background:var(--panel);border-color:var(--line)}
+  .nav .ext-link::after{content:"↗";margin-left:auto;font-size:11px;opacity:.4;transition:opacity .12s}
+  .nav .ext-link:hover::after{opacity:.9}
+
   .side .foot{margin-top:auto;padding:10px 8px;font-size:11px;color:var(--muted);border-top:1px solid var(--line)}
   .side .foot .user{display:flex;align-items:center;gap:10px;margin-bottom:8px}
   .side .foot .avatar{width:28px;height:28px;border-radius:50%;background:var(--chip);border:1px solid var(--line);overflow:hidden;flex-shrink:0}
@@ -177,6 +184,18 @@
 
       <div class="group-label">Settings</div>
       <button data-view="profile">👤 Profile</button>
+
+      <!-- Sites we can't legally / technically aggregate from but are worth a manual visit.
+           Each opens in a new tab. Reasons we don't scrape: auth-gated, robots.txt
+           Disallow, or no public API. -->
+      <div class="group-label">Browse externally ↗</div>
+      <a class="ext-link" href="https://notfoundjobs.com" target="_blank" rel="noopener" title="Designer-curated; auth-gated, can't aggregate">📓 Not Found Jobs</a>
+      <a class="ext-link" href="https://read.cv/jobs" target="_blank" rel="noopener" title="Read.cv community board; designer-first">📇 Read.cv Jobs</a>
+      <a class="ext-link" href="https://dribbble.com/jobs?location=anywhere&amp;remote=yes" target="_blank" rel="noopener" title="Portfolio-driven; OAuth required for API">🏀 Dribbble Jobs</a>
+      <a class="ext-link" href="https://www.behance.net/joblist" target="_blank" rel="noopener" title="Adobe-owned; no public API">🅱️ Behance Jobs</a>
+      <a class="ext-link" href="https://workingnotworking.com/find-work" target="_blank" rel="noopener" title="Invite-only designer community">🎨 Working Not Working</a>
+      <a class="ext-link" href="https://wellfound.com/jobs?role_types[]=designer&amp;remote=true" target="_blank" rel="noopener" title="Startup jobs; auth required for API">🚀 Wellfound (startups)</a>
+      <a class="ext-link" href="https://www.linkedin.com/jobs/search/?keywords=Product%20Designer&amp;f_WT=2" target="_blank" rel="noopener" title="LinkedIn blocks scraping by ToS">💼 LinkedIn (Designer · Remote)</a>
     </div>
 
     <div class="foot">
