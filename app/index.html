@@ -429,6 +429,36 @@ function escapeHtml(s) {
   }[c]));
 }
 
+// Defensive plain-text cleanup for job descriptions. Mirrors the Worker's
+// stripHtml so older jobs in Firestore that were saved before the Worker
+// fix render cleanly without requiring a re-fetch.
+function decodeEntities(s) {
+  return s
+    .replace(/&nbsp;/gi, ' ').replace(/&amp;/gi, '&').replace(/&lt;/gi, '<')
+    .replace(/&gt;/gi, '>').replace(/&quot;/gi, '"').replace(/&#39;/gi, "'")
+    .replace(/&apos;/gi, "'").replace(/&mdash;/gi, '—').replace(/&ndash;/gi, '–')
+    .replace(/&hellip;/gi, '…')
+    .replace(/&#(\d+);/g, (_, n) => String.fromCharCode(parseInt(n, 10)));
+}
+function cleanDesc(s) {
+  if (!s) return '';
+  let out = s;
+  for (let i = 0; i < 3; i++) {
+    const prev = out;
+    out = decodeEntities(out)
+      .replace(/<br\s*\/?>/gi, '\n')
+      .replace(/<\/(?:p|div|li|h[1-6]|tr|blockquote)>/gi, '\n')
+      .replace(/<li[^>]*>/gi, '\n• ')
+      .replace(/<[^>]+>/g, '');
+    if (out === prev) break;
+  }
+  return out
+    .replace(/[ \t]+/g, ' ')
+    .replace(/ ?\n ?/g, '\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
 // ─────────────────────────────────────────────────────────────────────────
 // AUTH
 // ─────────────────────────────────────────────────────────────────────────
@@ -743,7 +773,7 @@ function renderJobDetail() {
   const bucket = (j.score === null || j.score === undefined) ? '' : `s-${Math.floor(j.score / 20)}`;
   $('jobScore').textContent = sc;
   $('jobScore').className = 'score ' + bucket;
-  $('jobDesc').textContent = j.description || '(no description)';
+  $('jobDesc').textContent = cleanDesc(j.description) || '(no description)';
 
   // Status buttons
   const bar = $('jobStatusBar');

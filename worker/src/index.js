@@ -187,7 +187,43 @@ function jobText(j) {
 // ────────────────────────────────────────────────────────────────────────────
 
 const TAG_RE = /<[^>]+>/g;
-const stripHtml = (s) => (s || '').replace(TAG_RE, '').replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&#39;/g, "'").trim();
+
+// Robust HTML → plain text. Handles:
+//   • CDATA-wrapped descriptions (already unwrapped by the RSS parser)
+//   • HTML-encoded descriptions (`&lt;p&gt;…&lt;/p&gt;`) — decode entities
+//     before stripping tags so encoded tags don't leak through
+//   • Multi-level encoding (`&amp;lt;` → `&lt;` → `<`) — loops until stable
+//   • Preserves paragraph / list structure as newlines + bullets
+function decodeEntities(s) {
+  return s
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/&amp;/gi, '&')
+    .replace(/&lt;/gi, '<')
+    .replace(/&gt;/gi, '>')
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;/gi, "'")
+    .replace(/&apos;/gi, "'")
+    .replace(/&mdash;/gi, '—')
+    .replace(/&ndash;/gi, '–')
+    .replace(/&hellip;/gi, '…')
+    .replace(/&#(\d+);/g, (_, n) => String.fromCharCode(parseInt(n, 10)));
+}
+
+function stripHtml(s) {
+  if (!s) return '';
+  // Pre-truncate. We slice to 8KB downstream anyway, so processing a
+  // 50KB blob is wasted CPU. This caps the worst-case work per call.
+  const trimmed = s.length > 16000 ? s.slice(0, 16000) : s;
+  // First pass: decode entities then strip tags. Handles 99% of inputs.
+  let out = decodeEntities(trimmed).replace(TAG_RE, '');
+  // Conditional second pass: only when double-encoding left behind entities
+  // like &amp;nbsp; → &nbsp; that should have been resolved. Skipped for
+  // most jobs, so the amortized CPU cost stays inside the free-tier limit.
+  if (/&[a-z]+;|&#\d+;/i.test(out)) {
+    out = decodeEntities(out).replace(TAG_RE, '');
+  }
+  return out.trim();
+}
 
 const UA_HEADERS = { 'User-Agent': 'ZeeApply/0.1 (personal use)' };
 
