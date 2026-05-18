@@ -44,8 +44,15 @@ function corsHeaders(origin, allowed) {
 // Tries each model in order; falls through on rate-limit / quota / 404 / 503.
 // ────────────────────────────────────────────────────────────────────────────
 
+// Try models in this exact order. The first one whose API call succeeds wins.
+// Models that 404 (not yet released for your account), 429 (per-minute quota),
+// 503 (overloaded), or RESOURCE_EXHAUSTED (daily quota) are skipped and the
+// chain falls through. Auth errors surface immediately.
 const GEMINI_MODELS = [
+  'gemini-3.1-pro',
   'gemini-3-flash-preview',
+  'gemini-3-flash-lite',
+  'gemini-2.5-pro',
   'gemini-2.5-flash',
   'gemini-2.5-flash-lite',
   'gemini-2.0-flash',
