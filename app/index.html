@@ -97,9 +97,10 @@
   .score.s-4, .score.s-5{background:rgba(74,222,128,.16);color:var(--good)}
   .score.s-3{background:rgba(251,191,36,.16);color:var(--warn)}
   .score.s-0, .score.s-1, .score.s-2{background:rgba(248,113,113,.14);color:var(--bad)}
-  .jobrow .meta .title{font-weight:600;font-size:16px;color:var(--ink);margin-bottom:2px;line-height:1.3}
+  .jobrow .meta .company{font-weight:700;font-size:18px;color:var(--ink);margin-bottom:2px;line-height:1.25;letter-spacing:-.2px}
+  .jobrow .meta .title{font-weight:500;font-size:15px;color:#cdcdcd;margin-bottom:2px;line-height:1.3}
   .jobrow .meta .sub{font-size:12px;color:var(--muted)}
-  .jobrow .meta .reason{font-size:12px;color:#cdcdcd;margin-top:4px;line-height:1.4}
+  .jobrow .meta .reason{font-size:12px;color:#cdcdcd;margin-top:6px;line-height:1.4}
   .jobrow .arrow{color:var(--muted);font-size:18px}
 
   /* Job detail */
@@ -292,8 +293,8 @@
       <div class="toolbar">
         <span class="pill"><span class="dot"></span><span id="statusPill">Ready</span></span>
         <label style="display:inline-flex;align-items:center;gap:6px;font-size:12px;color:var(--muted);cursor:pointer;user-select:none">
-          <input type="checkbox" id="globalOnlyToggle" style="accent-color:var(--good)" />
-          🌍 Worldwide-friendly only
+          <input type="checkbox" id="indiaOnlyToggle" style="accent-color:var(--good)" />
+          🇮🇳 India / Bangalore only
         </label>
         <div class="right" id="jobsMeta"></div>
       </div>
@@ -306,11 +307,11 @@
       <div class="topbar">
         <div>
           <div class="crumbs"><a href="#" id="backToJobs">← back to jobs</a></div>
-          <h2 id="jobTitle"></h2>
+          <div id="jobCompany" style="font-size:28px;font-weight:700;letter-spacing:-.5px;line-height:1.15;margin:6px 0 4px"></div>
+          <h2 id="jobTitle" style="font-size:18px;font-weight:500;color:#cdcdcd;letter-spacing:0;margin:0"></h2>
         </div>
         <div class="actions">
-          <button class="btn secondary" id="copyAndApplyBtn" title="Copies the cover letter to your clipboard and opens the apply page in a new tab.">📋 Copy letter + Open ↗</button>
-          <a class="btn secondary" id="jobOpenLink" target="_blank" rel="noopener">Open posting ↗</a>
+          <a class="btn primary" id="jobOpenLink" target="_blank" rel="noopener">Open posting ↗</a>
         </div>
       </div>
 
@@ -320,11 +321,6 @@
           <div id="jobMeta" style="color:var(--muted);font-size:13px;margin-bottom:4px"></div>
           <div id="jobReason" style="font-size:13px;color:#cdcdcd"></div>
         </div>
-      </div>
-
-      <h3 style="margin:18px 0 10px;font-size:14px;color:var(--muted);text-transform:uppercase;letter-spacing:.1em">Cover letter</h3>
-      <div id="coverLetterWrap">
-        <button class="btn primary" id="draftBtn">Draft tailored cover letter</button>
       </div>
 
       <h3 style="margin:18px 0 10px;font-size:14px;color:var(--muted);text-transform:uppercase;letter-spacing:.1em">Job description</h3>
@@ -402,9 +398,17 @@ const state = {
   jobs: {},             // jobKey -> job doc
   currentView: 'jobs',
   currentJobKey: null,  // for job detail view
-  globalOnly: false,    // 🌍 worldwide-friendly filter toggle
+  indiaOnly: false,     // 🇮🇳 India / Bangalore filter toggle
   scoring: false,       // re-entrancy lock for autoScore
 };
+
+// India-location detector. Tests the job's location text for any major
+// Indian metro / state name so jobs based in India bubble up with a 🇮🇳
+// badge and can be filtered with the toolbar toggle.
+const INDIA_LOCATION_RE = /\b(india|bangalore|bengaluru|mumbai|delhi|hyderabad|pune|chennai|kolkata|noida|gurgaon|gurugram|ahmedabad|jaipur|kochi|trivandrum|thiruvananthapuram|indore|chandigarh|kerala|karnataka|maharashtra|tamil\s*nadu|telangana|gujarat)\b/i;
+function isIndiaJob(j) {
+  return INDIA_LOCATION_RE.test(j.location || '');
+}
 
 // ─────────────────────────────────────────────────────────────────────────
 // UI HELPERS
@@ -504,7 +508,7 @@ fbAuth.onAuthStateChanged(async (user) => {
 // FIRESTORE
 // State shape:
 //   users/{uid}                  → { profile, meta }
-//   users/{uid}/jobs/{jobKey}    → { source, externalId, title, ..., score, status, coverLetter, ... }
+//   users/{uid}/jobs/{jobKey}    → { source, externalId, title, ..., score, scoreReason, status, ... }
 // ─────────────────────────────────────────────────────────────────────────
 
 const userDoc = () => db.collection('users').doc(state.user.uid);
@@ -644,8 +648,6 @@ $('fetchBtn').addEventListener('click', async () => {
           score: j.excluded ? -1 : null,
           scoreReason: j.excluded || '',
           status: j.excluded ? 'excluded' : 'new',
-          coverLetter: '',
-          globalFriendly: !!j.globalFriendly,
           savedAt: Date.now(),
         };
         batch.set(jobDoc(key), doc);
@@ -773,30 +775,31 @@ function updateCounts() {
 function renderJobs() {
   updateCounts();
   let list = visibleJobs();
-  if (state.globalOnly) list = list.filter(j => j.globalFriendly);
+  if (state.indiaOnly) list = list.filter(isIndiaJob);
   const wrap = $('joblist');
-  const globalCount = visibleJobs().filter(j => j.globalFriendly).length;
+  const indiaCount = visibleJobs().filter(isIndiaJob).length;
   $('jobsTitle').textContent = `Jobs · ${list.length}`;
-  $('jobsMeta').textContent = globalCount ? `${globalCount} 🌍 worldwide-friendly` : '';
+  $('jobsMeta').textContent = indiaCount ? `${indiaCount} 🇮🇳 India / Bangalore` : '';
   if (!list.length) {
     wrap.innerHTML = `<div class="empty">
       <div class="ico">🗂️</div>
       <div>No jobs yet.</div>
-      <small>${state.globalOnly ? 'Untick the 🌍 toggle to see all jobs.' : 'Click <b>Fetch jobs</b> in the top right to pull from 10+ sources.'}</small>
+      <small>${state.indiaOnly ? 'No India-based jobs in your feed yet. Untick the 🇮🇳 toggle to see all jobs.' : 'Click <b>Fetch jobs</b> in the top right to pull from 10+ sources.'}</small>
     </div>`;
     return;
   }
   wrap.innerHTML = list.map(j => {
     const score = (j.score === null || j.score === undefined) ? '—' : j.score;
     const bucket = (j.score === null || j.score === undefined) ? '' : `s-${Math.floor(j.score / 20)}`;
-    const globalBadge = j.globalFriendly
-      ? `<span title="Worldwide-friendly: explicit remote-global / sponsorship language" style="display:inline-block;margin-left:8px;padding:1px 7px;background:rgba(74,222,128,.12);color:var(--good);border-radius:4px;font-size:10px;font-weight:600;letter-spacing:.04em">🌍 GLOBAL</span>`
+    const indiaBadge = isIndiaJob(j)
+      ? `<span title="Job is based in India" style="display:inline-block;margin-left:8px;padding:1px 7px;background:rgba(106,166,255,.12);color:var(--blue);border-radius:4px;font-size:10px;font-weight:600;letter-spacing:.04em;vertical-align:middle">🇮🇳 INDIA</span>`
       : '';
     return `<div class="jobrow" data-key="${escapeHtml(j.key)}">
       <div class="score ${bucket}">${score}</div>
       <div class="meta">
-        <div class="title">${escapeHtml(j.title)}${globalBadge}</div>
-        <div class="sub">${escapeHtml(j.company)} · ${escapeHtml(j.location || '—')} · <span style="color:#666">${escapeHtml(j.source)}</span></div>
+        <div class="company">${escapeHtml(j.company)}${indiaBadge}</div>
+        <div class="title">${escapeHtml(j.title)}</div>
+        <div class="sub">${escapeHtml(j.location || '—')} · <span style="color:#666">${escapeHtml(j.source)}</span></div>
         ${j.scoreReason ? `<div class="reason">${escapeHtml(j.scoreReason)}</div>` : ''}
       </div>
       <div class="arrow">›</div>
@@ -822,8 +825,12 @@ function renderJobDetail() {
     routeTo('jobs');
     return;
   }
+  const indiaBadge = isIndiaJob(j)
+    ? ` <span style="display:inline-block;margin-left:10px;padding:3px 10px;background:rgba(106,166,255,.12);color:var(--blue);border-radius:6px;font-size:12px;font-weight:600;letter-spacing:.04em;vertical-align:middle">🇮🇳 INDIA</span>`
+    : '';
+  $('jobCompany').innerHTML = escapeHtml(j.company) + indiaBadge;
   $('jobTitle').textContent = j.title;
-  $('jobMeta').textContent = `${j.company} · ${j.location || '—'} · ${j.source}`;
+  $('jobMeta').textContent = `${j.location || '—'} · ${j.source}`;
   $('jobReason').textContent = j.scoreReason || '(not scored yet)';
   $('jobOpenLink').href = j.url || '#';
   const sc = (j.score === null || j.score === undefined) ? '—' : j.score;
@@ -831,72 +838,11 @@ function renderJobDetail() {
   $('jobScore').textContent = sc;
   $('jobScore').className = 'score ' + bucket;
   $('jobDesc').textContent = cleanDesc(j.description) || '(no description)';
-
-  // Cover letter area
-  const wrap = $('coverLetterWrap');
-  if (!j.coverLetter) {
-    wrap.innerHTML = `<button class="btn primary" id="draftBtn">Draft tailored cover letter</button>`;
-    $('draftBtn').addEventListener('click', () => draftCoverLetter());
-  } else {
-    wrap.innerHTML = `
-      <textarea id="coverLetterTxt" rows="12" style="width:100%;background:var(--panel);color:var(--ink);border:1px solid var(--line);padding:12px;border-radius:8px;font-size:16px;line-height:1.55;font-family:system-ui,sans-serif;resize:vertical">${escapeHtml(j.coverLetter)}</textarea>
-      <div class="row" style="margin-top:8px">
-        <button class="btn secondary" id="saveLetterBtn">Save edits</button>
-        <button class="btn ghost" id="redraftBtn">Regenerate</button>
-        <button class="btn ghost" id="copyLetterBtn">Copy</button>
-      </div>`;
-    $('saveLetterBtn').addEventListener('click', async () => {
-      j.coverLetter = $('coverLetterTxt').value;
-      await jobDoc(state.currentJobKey).set({ coverLetter: j.coverLetter }, { merge: true });
-      toast('Saved', 'ok');
-    });
-    $('redraftBtn').addEventListener('click', () => draftCoverLetter());
-    $('copyLetterBtn').addEventListener('click', () => {
-      navigator.clipboard.writeText($('coverLetterTxt').value);
-      toast('Copied', 'ok');
-    });
-  }
-}
-
-async function draftCoverLetter() {
-  const j = state.jobs[state.currentJobKey];
-  if (!j) return;
-  $('coverLetterWrap').innerHTML = `<div class="empty"><span class="spinner"></span>&nbsp; Drafting…</div>`;
-  try {
-    const res = await api('/cover-letter', { profile: profilePayload(), job: j });
-    j.coverLetter = res.text;
-    j.coverLetterModel = res.model;
-    await jobDoc(state.currentJobKey).set({ coverLetter: res.text, coverLetterModel: res.model }, { merge: true });
-    renderJobDetail();
-  } catch (e) {
-    toast('Draft failed: ' + e.message, 'err');
-    renderJobDetail();
-  }
 }
 
 $('backToJobs').addEventListener('click', (e) => {
   e.preventDefault();
   routeTo('jobs');
-});
-
-// "Copy letter + Open" — copies the cover letter to the clipboard and
-// opens the apply URL in a new tab in one click, so you can paste straight
-// into the company's form.
-$('copyAndApplyBtn').addEventListener('click', async () => {
-  const j = state.jobs[state.currentJobKey];
-  if (!j) return;
-  if (!j.coverLetter) {
-    toast('Draft a cover letter first', 'err');
-    return;
-  }
-  try {
-    await navigator.clipboard.writeText(j.coverLetter);
-  } catch (e) {
-    toast('Could not access clipboard — copy manually', 'err');
-    return;
-  }
-  window.open(j.url || '#', '_blank', 'noopener');
-  toast('Cover letter copied · apply page opened in a new tab.', 'ok');
 });
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -969,9 +915,9 @@ document.querySelectorAll('.nav button').forEach(b => {
   b.addEventListener('click', () => routeTo(b.dataset.view));
 });
 
-// Persist the 🌍 toggle across the session so refreshing the jobs view doesn't reset it.
-$('globalOnlyToggle').addEventListener('change', (e) => {
-  state.globalOnly = e.target.checked;
+// Persist the 🇮🇳 India toggle across the session so refreshing the jobs view doesn't reset it.
+$('indiaOnlyToggle').addEventListener('change', (e) => {
+  state.indiaOnly = e.target.checked;
   if (state.currentView === 'jobs') renderJobs();
 });
 
