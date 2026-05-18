@@ -122,10 +122,6 @@
     max-height:600px;
     overflow:auto;
   }
-  .status-bar{display:flex;gap:6px;margin:12px 0;flex-wrap:wrap}
-  .status-bar button{padding:6px 12px;border-radius:7px;background:transparent;border:1px solid var(--line);color:var(--muted);font-size:12px;text-transform:capitalize}
-  .status-bar button:hover{color:var(--ink);border-color:#444}
-  .status-bar button.active{background:var(--ink);color:#000;border-color:var(--ink)}
 
   /* Auth gate */
   .gate{display:flex;align-items:center;justify-content:center;min-height:100vh;padding:24px}
@@ -185,14 +181,7 @@
     </a>
 
     <div class="nav" id="nav">
-      <div class="group-label">Pipeline</div>
-      <button data-view="jobs" data-status="new">📋 New jobs <span class="count" data-count="new">0</span></button>
-      <button data-view="jobs" data-status="interested">⭐ Interested <span class="count" data-count="interested">0</span></button>
-      <button data-view="jobs" data-status="applied">✅ Applied <span class="count" data-count="applied">0</span></button>
-      <button data-view="jobs" data-status="skipped">🚫 Skipped <span class="count" data-count="skipped">0</span></button>
-      <button data-view="jobs" data-status="excluded">⛔ Excluded <span class="count" data-count="excluded">0</span></button>
-
-      <div class="group-label">Settings</div>
+      <button data-view="jobs">📋 Jobs <span class="count" data-count="visible">0</span></button>
       <button data-view="profile">👤 Profile</button>
     </div>
 
@@ -292,13 +281,11 @@
     <section id="view-jobs" class="view hidden">
       <div class="topbar">
         <div>
-          <div class="crumbs" id="jobsCrumb">Pipeline</div>
           <h2 id="jobsTitle">Jobs</h2>
         </div>
         <div class="actions">
-          <button class="btn ghost" id="resetNewBtn" title="Delete every job currently in 'New' so you can re-fetch a fresh feed. Interested / Applied / Skipped / Excluded are kept.">↻ Reset feed</button>
-          <button class="btn secondary" id="fetchBtn">Fetch jobs</button>
-          <button class="btn primary" id="scoreBtn">Score new</button>
+          <button class="btn ghost" id="resetNewBtn" title="Wipe every job in your feed so you can re-fetch fresh data.">↻ Reset feed</button>
+          <button class="btn primary" id="fetchBtn">Fetch jobs</button>
         </div>
       </div>
 
@@ -334,8 +321,6 @@
           <div id="jobReason" style="font-size:13px;color:#cdcdcd"></div>
         </div>
       </div>
-
-      <div class="status-bar" id="jobStatusBar"></div>
 
       <h3 style="margin:18px 0 10px;font-size:14px;color:var(--muted);text-transform:uppercase;letter-spacing:.1em">Cover letter</h3>
       <div id="coverLetterWrap">
@@ -416,8 +401,9 @@ const state = {
   profile: null,        // profile doc data
   jobs: {},             // jobKey -> job doc
   currentView: 'jobs',
-  currentStatus: 'new', // for jobs view
   currentJobKey: null,  // for job detail view
+  globalOnly: false,    // 🌍 worldwide-friendly filter toggle
+  scoring: false,       // re-entrancy lock for autoScore
 };
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -545,6 +531,8 @@ async function loadFromFirestore() {
   state.jobs = {};
   jobSnap.forEach(d => { state.jobs[d.id] = d.data(); });
   updateCounts();
+  // If a previous session left unscored jobs lying around, finish them now.
+  autoScore();
 }
 
 // Promise-with-timeout helper. Throws if the underlying promise hasn't
@@ -668,81 +656,85 @@ $('fetchBtn').addEventListener('click', async () => {
     }
     updateCounts();
     renderJobs();
-    setStatusPill(`✓ Fetched ${all.length} · saved ${inserted} new · skipped ${skipped} dupes`, 'warn');
-    toast(`Fetched ${all.length} jobs · ${inserted} new`, 'ok');
+    setStatusPill(`✓ Fetched ${all.length} · saved ${inserted} new · skipped ${skipped} dupes`, '');
+    toast(`Fetched ${all.length} jobs · ${inserted} new · auto-scoring now`, 'ok');
   } catch (e) {
     setStatusPill('Fetch failed', 'bad');
     toast('Fetch failed: ' + e.message, 'err');
   } finally {
     btn.disabled = false;
   }
+  // Kick off scoring of any unscored jobs without blocking the user
+  autoScore();
 });
 
 // ─────────────────────────────────────────────────────────────────────────
-// SCORE JOBS
+// AUTO-SCORE
+// Runs automatically after Fetch and on initial app load when there are
+// unscored jobs in your Firestore. No button to click — the system just
+// scores whatever's pending. Sequentially through all of them so the
+// Gemini fallback chain has time to absorb rate-limit hiccups gracefully.
+// Set state.scoring as a re-entrancy lock so the same loop isn't started
+// twice (e.g. on initial load + immediately after a fetch).
 // ─────────────────────────────────────────────────────────────────────────
-$('scoreBtn').addEventListener('click', async () => {
-  const btn = $('scoreBtn');
-  btn.disabled = true;
-  const pending = Object.entries(state.jobs)
-    .filter(([_, j]) => j.status === 'new' && (j.score === null || j.score === undefined))
-    .slice(0, 50); // cap per click to avoid runaway costs
-  if (!pending.length) {
-    setStatusPill('Nothing new to score', 'warn');
-    btn.disabled = false;
-    return;
-  }
-  let done = 0, failed = 0;
-  for (const [key, j] of pending) {
-    setStatusPill(`Scoring ${done + 1}/${pending.length}…`);
-    try {
-      const res = await api('/score', { profile: profilePayload(), job: j });
-      j.score = res.score;
-      j.scoreReason = res.reason;
-      j.scoreModel = res.model;
-      await jobDoc(key).set({ score: res.score, scoreReason: res.reason, scoreModel: res.model }, { merge: true });
-      done++;
-    } catch (e) {
-      failed++;
-      j.score = -1;
-      j.scoreReason = 'Error: ' + e.message.slice(0, 200);
-      await jobDoc(key).set({ score: -1, scoreReason: j.scoreReason }, { merge: true });
+async function autoScore() {
+  if (state.scoring) return;
+  state.scoring = true;
+  try {
+    const pending = Object.entries(state.jobs)
+      .filter(([_, j]) => !j.excluded && (j.score === null || j.score === undefined));
+    if (!pending.length) {
+      state.scoring = false;
+      return;
     }
-    if (done % 10 === 0) renderJobs();
+    let done = 0, failed = 0;
+    for (const [key, j] of pending) {
+      setStatusPill(`Scoring ${done + 1} of ${pending.length}…`);
+      try {
+        const res = await api('/score', { profile: profilePayload(), job: j });
+        j.score = res.score;
+        j.scoreReason = res.reason;
+        j.scoreModel = res.model;
+        await jobDoc(key).set({ score: res.score, scoreReason: res.reason, scoreModel: res.model }, { merge: true });
+        done++;
+      } catch (e) {
+        failed++;
+        j.score = -1;
+        j.scoreReason = 'Error: ' + e.message.slice(0, 200);
+        await jobDoc(key).set({ score: -1, scoreReason: j.scoreReason }, { merge: true });
+      }
+      // Re-render every 10 to show progress without flickering on every job
+      if (done % 10 === 0) renderJobs();
+    }
+    renderJobs();
+    setStatusPill(`✓ Scored ${done}${failed ? ' · ' + failed + ' errors' : ''}`, failed ? 'warn' : '');
+  } finally {
+    state.scoring = false;
   }
-  renderJobs();
-  setStatusPill(`✓ Scored ${done} · ${failed} errors`, failed ? 'warn' : '');
-  btn.disabled = false;
-});
+}
 
 // ─────────────────────────────────────────────────────────────────────────
-// RESET 'NEW' FEED
-// Bulk-deletes everything in users/{uid}/jobs where status === 'new'.
-// Interested / Applied / Skipped / Excluded are preserved. Useful when an
-// upstream Worker change (e.g. better description formatting) means you
-// want a fresh pull without manually clearing rows.
+// RESET FEED — bulk-deletes every job in users/{uid}/jobs. Useful when an
+// upstream Worker change improves data quality and you want a fresh pull.
 // ─────────────────────────────────────────────────────────────────────────
 $('resetNewBtn').addEventListener('click', async () => {
-  const newKeys = Object.entries(state.jobs)
-    .filter(([_, j]) => j.status === 'new')
-    .map(([k]) => k);
-  if (!newKeys.length) {
-    toast("Nothing in 'New' to clear", 'err');
+  const keys = Object.keys(state.jobs);
+  if (!keys.length) {
+    toast('No jobs to clear', 'err');
     return;
   }
   const ok = confirm(
-    `Delete ${newKeys.length} jobs from 'New'?\n\n` +
-    `Your Interested / Applied / Skipped / Excluded jobs are kept.\n` +
+    `Delete all ${keys.length} jobs from your feed?\n\n` +
     `After this you can click 'Fetch jobs' to repopulate with the latest data.`
   );
   if (!ok) return;
   const btn = $('resetNewBtn');
   btn.disabled = true;
-  setStatusPill(`Deleting ${newKeys.length} jobs…`);
+  setStatusPill(`Deleting ${keys.length} jobs…`);
   try {
     // Firestore: 500 writes/batch. Use 400 for safety margin.
-    for (let i = 0; i < newKeys.length; i += 400) {
-      const chunk = newKeys.slice(i, i + 400);
+    for (let i = 0; i < keys.length; i += 400) {
+      const chunk = keys.slice(i, i + 400);
       const batch = db.batch();
       for (const key of chunk) {
         batch.delete(jobDoc(key));
@@ -751,8 +743,8 @@ $('resetNewBtn').addEventListener('click', async () => {
       await batch.commit();
     }
     renderJobs();
-    setStatusPill(`✓ Cleared ${newKeys.length} jobs. Click 'Fetch jobs' to repopulate.`, '');
-    toast(`Cleared ${newKeys.length} jobs from 'New'`, 'ok');
+    setStatusPill(`✓ Cleared ${keys.length} jobs. Click 'Fetch jobs' to repopulate.`, '');
+    toast(`Cleared ${keys.length} jobs`, 'ok');
   } catch (e) {
     setStatusPill('Reset failed', 'bad');
     toast('Reset failed: ' + e.message, 'err');
@@ -764,35 +756,33 @@ $('resetNewBtn').addEventListener('click', async () => {
 // ─────────────────────────────────────────────────────────────────────────
 // RENDER JOB LIST
 // ─────────────────────────────────────────────────────────────────────────
-function jobsForStatus(status) {
+// Visible jobs = everything in Firestore that the Worker did NOT auto-exclude
+// (US-only / clearance / no-sponsorship). Sorted by score then by recency.
+function visibleJobs() {
   return Object.entries(state.jobs)
-    .filter(([_, j]) => j.status === status)
+    .filter(([_, j]) => !j.excluded && j.status !== 'excluded')
     .map(([k, j]) => ({ key: k, ...j }))
     .sort((a, b) => (b.score ?? -1) - (a.score ?? -1) || (b.savedAt || 0) - (a.savedAt || 0));
 }
 
 function updateCounts() {
-  for (const status of ['new', 'interested', 'applied', 'skipped', 'excluded']) {
-    const el = document.querySelector(`[data-count="${status}"]`);
-    if (el) el.textContent = jobsForStatus(status).length;
-  }
+  const total = visibleJobs().length;
+  document.querySelectorAll('[data-count="visible"]').forEach(el => { el.textContent = total; });
 }
 
 function renderJobs() {
   updateCounts();
-  let list = jobsForStatus(state.currentStatus);
+  let list = visibleJobs();
   if (state.globalOnly) list = list.filter(j => j.globalFriendly);
   const wrap = $('joblist');
-  const globalCount = jobsForStatus(state.currentStatus).filter(j => j.globalFriendly).length;
-  // Reset button is only meaningful in the 'new' bucket
-  $('resetNewBtn').classList.toggle('hidden', state.currentStatus !== 'new');
-  $('jobsTitle').textContent = state.currentStatus.charAt(0).toUpperCase() + state.currentStatus.slice(1) + ' · ' + list.length;
-  $('jobsMeta').textContent = `${globalCount} 🌍 worldwide-friendly`;
+  const globalCount = visibleJobs().filter(j => j.globalFriendly).length;
+  $('jobsTitle').textContent = `Jobs · ${list.length}`;
+  $('jobsMeta').textContent = globalCount ? `${globalCount} 🌍 worldwide-friendly` : '';
   if (!list.length) {
     wrap.innerHTML = `<div class="empty">
       <div class="ico">🗂️</div>
-      <div>No jobs here yet.</div>
-      <small>${state.currentStatus === 'new' ? 'Click <b>Fetch jobs</b> in the top right to pull from 10 sources.' : (state.globalOnly ? 'Untick the 🌍 toggle to see all jobs in this view.' : 'Jobs will appear here once you mark them.')}</small>
+      <div>No jobs yet.</div>
+      <small>${state.globalOnly ? 'Untick the 🌍 toggle to see all jobs.' : 'Click <b>Fetch jobs</b> in the top right to pull from 10+ sources.'}</small>
     </div>`;
     return;
   }
@@ -842,21 +832,6 @@ function renderJobDetail() {
   $('jobScore').className = 'score ' + bucket;
   $('jobDesc').textContent = cleanDesc(j.description) || '(no description)';
 
-  // Status buttons
-  const bar = $('jobStatusBar');
-  bar.innerHTML = ['new', 'interested', 'applied', 'skipped', 'excluded']
-    .map(s => `<button data-status="${s}" class="${j.status === s ? 'active' : ''}">${s}</button>`).join('');
-  bar.querySelectorAll('button').forEach(b => {
-    b.addEventListener('click', async () => {
-      const newStatus = b.dataset.status;
-      j.status = newStatus;
-      await jobDoc(state.currentJobKey).set({ status: newStatus }, { merge: true });
-      renderJobDetail();
-      updateCounts();
-      toast(`Marked as ${newStatus}`, 'ok');
-    });
-  });
-
   // Cover letter area
   const wrap = $('coverLetterWrap');
   if (!j.coverLetter) {
@@ -901,7 +876,7 @@ async function draftCoverLetter() {
 
 $('backToJobs').addEventListener('click', (e) => {
   e.preventDefault();
-  routeTo('jobs', state.currentStatus);
+  routeTo('jobs');
 });
 
 // "Copy letter + Open" — copies the cover letter to the clipboard and
@@ -957,25 +932,18 @@ $('saveProfileBtn').addEventListener('click', async () => {
 
 // ─────────────────────────────────────────────────────────────────────────
 // ROUTING (hash-based, no library)
-// #/jobs/new | #/jobs/interested | #/profile | #/job/<key>
+// #/jobs | #/profile | #/job/<key>
 // ─────────────────────────────────────────────────────────────────────────
-function routeTo(view, status) {
-  if (view === 'jobs') {
-    location.hash = `#/jobs/${status || state.currentStatus}`;
-  } else if (view === 'profile') {
-    location.hash = `#/profile`;
-  } else if (view === 'job') {
-    // handled by openJob
-  }
+function routeTo(view) {
+  if (view === 'jobs') location.hash = '#/jobs';
+  else if (view === 'profile') location.hash = '#/profile';
 }
 
 function routeFromHash() {
-  const h = location.hash.slice(1) || '/jobs/new';
+  const h = location.hash.slice(1) || '/jobs';
   const parts = h.split('/').filter(Boolean);
 
-  // Hide all views
   document.querySelectorAll('.view').forEach(v => hide(v));
-  // Clear active nav
   document.querySelectorAll('.nav button').forEach(b => b.classList.remove('active'));
 
   if (parts[0] === 'profile') {
@@ -988,12 +956,9 @@ function routeFromHash() {
     renderJobDetail();
     state.currentView = 'job';
   } else {
-    // jobs/<status>
-    const status = parts[1] || 'new';
-    state.currentStatus = status;
     state.currentView = 'jobs';
     show($('view-jobs'));
-    document.querySelector(`.nav button[data-view="jobs"][data-status="${status}"]`)?.classList.add('active');
+    document.querySelector('.nav button[data-view="jobs"]')?.classList.add('active');
     renderJobs();
   }
 }
@@ -1001,10 +966,7 @@ function routeFromHash() {
 window.addEventListener('hashchange', routeFromHash);
 
 document.querySelectorAll('.nav button').forEach(b => {
-  b.addEventListener('click', () => {
-    if (b.dataset.view === 'profile') routeTo('profile');
-    else if (b.dataset.view === 'jobs') routeTo('jobs', b.dataset.status);
-  });
+  b.addEventListener('click', () => routeTo(b.dataset.view));
 });
 
 // Persist the 🌍 toggle across the session so refreshing the jobs view doesn't reset it.
