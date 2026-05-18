@@ -262,6 +262,12 @@
           <label>Lever companies (comma-separated slugs; from jobs.lever.co/&lt;slug&gt;)</label>
           <input type="text" name="leverCompanies" placeholder="palantir, mistral" />
         </div>
+
+        <div class="field">
+          <label>Ashby companies (comma-separated slugs; from jobs.ashbyhq.com/&lt;slug&gt;)</label>
+          <input type="text" name="ashbyCompanies" placeholder="openai, Linear, Notion, Ramp, Mistral" />
+          <span class="hint">Note: case-sensitive — Linear (capital L), Notion, Ramp, Mistral, Cohere, Lovable, Posthog, Sentry, Plaid, stytch, browserbase, replit. Leave empty to use the built-in designer-heavy default list.</span>
+        </div>
       </form>
     </section>
 
@@ -280,6 +286,10 @@
 
       <div class="toolbar">
         <span class="pill"><span class="dot"></span><span id="statusPill">Ready</span></span>
+        <label style="display:inline-flex;align-items:center;gap:6px;font-size:12px;color:var(--muted);cursor:pointer;user-select:none">
+          <input type="checkbox" id="globalOnlyToggle" style="accent-color:var(--good)" />
+          🌍 Worldwide-friendly only
+        </label>
         <div class="right" id="jobsMeta"></div>
       </div>
 
@@ -353,6 +363,7 @@ const DEFAULT_PROFILE = {
   resume: '',
   greenhouseCompanies: '',
   leverCompanies: '',
+  ashbyCompanies: '',
 };
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -573,6 +584,7 @@ $('fetchBtn').addEventListener('click', async () => {
       country: state.profile.country,
       greenhouseCompanies: parseCsv(state.profile.greenhouseCompanies),
       leverCompanies: parseCsv(state.profile.leverCompanies),
+      ashbyCompanies: parseCsv(state.profile.ashbyCompanies),
     });
     // Upsert into Firestore in batches (Firestore limit: 500 writes/batch)
     let inserted = 0, updated = 0, skipped = 0;
@@ -596,6 +608,7 @@ $('fetchBtn').addEventListener('click', async () => {
           scoreReason: j.excluded || '',
           status: j.excluded ? 'excluded' : 'new',
           coverLetter: '',
+          globalFriendly: !!j.globalFriendly,
           savedAt: Date.now(),
         };
         batch.set(jobDoc(key), doc);
@@ -672,24 +685,30 @@ function updateCounts() {
 
 function renderJobs() {
   updateCounts();
-  const list = jobsForStatus(state.currentStatus);
+  let list = jobsForStatus(state.currentStatus);
+  if (state.globalOnly) list = list.filter(j => j.globalFriendly);
   const wrap = $('joblist');
+  const globalCount = jobsForStatus(state.currentStatus).filter(j => j.globalFriendly).length;
   $('jobsTitle').textContent = state.currentStatus.charAt(0).toUpperCase() + state.currentStatus.slice(1) + ' · ' + list.length;
+  $('jobsMeta').textContent = `${globalCount} 🌍 worldwide-friendly`;
   if (!list.length) {
     wrap.innerHTML = `<div class="empty">
       <div class="ico">🗂️</div>
       <div>No jobs here yet.</div>
-      <small>${state.currentStatus === 'new' ? 'Click <b>Fetch jobs</b> in the top right to pull from the 8 sources.' : 'Jobs will appear here once you mark them.'}</small>
+      <small>${state.currentStatus === 'new' ? 'Click <b>Fetch jobs</b> in the top right to pull from 10 sources.' : (state.globalOnly ? 'Untick the 🌍 toggle to see all jobs in this view.' : 'Jobs will appear here once you mark them.')}</small>
     </div>`;
     return;
   }
   wrap.innerHTML = list.map(j => {
     const score = (j.score === null || j.score === undefined) ? '—' : j.score;
     const bucket = (j.score === null || j.score === undefined) ? '' : `s-${Math.floor(j.score / 20)}`;
+    const globalBadge = j.globalFriendly
+      ? `<span title="Worldwide-friendly: explicit remote-global / sponsorship language" style="display:inline-block;margin-left:8px;padding:1px 7px;background:rgba(74,222,128,.12);color:var(--good);border-radius:4px;font-size:10px;font-weight:600;letter-spacing:.04em">🌍 GLOBAL</span>`
+      : '';
     return `<div class="jobrow" data-key="${escapeHtml(j.key)}">
       <div class="score ${bucket}">${score}</div>
       <div class="meta">
-        <div class="title">${escapeHtml(j.title)}</div>
+        <div class="title">${escapeHtml(j.title)}${globalBadge}</div>
         <div class="sub">${escapeHtml(j.company)} · ${escapeHtml(j.location || '—')} · <span style="color:#666">${escapeHtml(j.source)}</span></div>
         ${j.scoreReason ? `<div class="reason">${escapeHtml(j.scoreReason)}</div>` : ''}
       </div>
@@ -869,6 +888,12 @@ document.querySelectorAll('.nav button').forEach(b => {
     if (b.dataset.view === 'profile') routeTo('profile');
     else if (b.dataset.view === 'jobs') routeTo('jobs', b.dataset.status);
   });
+});
+
+// Persist the 🌍 toggle across the session so refreshing the jobs view doesn't reset it.
+$('globalOnlyToggle').addEventListener('change', (e) => {
+  state.globalOnly = e.target.checked;
+  if (state.currentView === 'jobs') renderJobs();
 });
 
 // Warn if firebaseConfig hasn't been filled in

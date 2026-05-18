@@ -350,6 +350,74 @@ async function fetchWeWorkRemotely() {
   });
 }
 
+// Ashby — JSON GraphQL endpoint, no auth. Used by Linear, Notion, OpenAI,
+// Ramp, Mistral, Lovable, replit, Posthog, Sentry, Plaid, etc.
+// The jobBoardWithTeams op only exposes brief fields (id, title, locationName).
+// Full descriptions would need 1 follow-up call per job — too many subrequests
+// for the Worker free tier. So Ashby jobs have minimal description; the LLM
+// scorer falls back on title + company + location, and users click through
+// to the Ashby page for the full posting.
+async function fetchAshby(slug) {
+  const query = `query ApiJobBoardWithTeams($organizationHostedJobsPageName: String!) {
+    jobBoard: jobBoardWithTeams(organizationHostedJobsPageName: $organizationHostedJobsPageName) {
+      jobPostings { id title locationName }
+    }
+  }`;
+  const r = await fetch('https://jobs.ashbyhq.com/api/non-user-graphql?op=ApiJobBoardWithTeams', {
+    method: 'POST',
+    headers: { ...UA_HEADERS, 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      operationName: 'ApiJobBoardWithTeams',
+      variables: { organizationHostedJobsPageName: slug },
+      query,
+    }),
+  });
+  if (!r.ok) throw new Error(`ashby:${slug} -> ${r.status}`);
+  const data = await r.json();
+  if (data?.errors?.length) {
+    throw new Error(`ashby:${slug} GraphQL: ${data.errors[0].message.slice(0, 120)}`);
+  }
+  const jobBoard = data?.data?.jobBoard;
+  if (!jobBoard) return [];   // org doesn't have a public Ashby board
+  return (jobBoard.jobPostings || []).map(j => ({
+    source: `ashby:${slug}`,
+    externalId: j.id,
+    title: j.title || '',
+    company: slug,
+    location: j.locationName || null,
+    url: `https://jobs.ashbyhq.com/${slug}/${j.id}`,
+    description: `${j.title} · ${slug}${j.locationName ? ' · ' + j.locationName : ''}. Open the apply page for full description.`,
+    postedAt: null,
+  }));
+}
+
+// The Muse — public API, no auth. "Design and UX" category includes a steady
+// stream of designer roles from mid-size to large companies. Paginated.
+async function fetchTheMuse(maxPages = 5) {
+  const out = [];
+  for (let page = 1; page <= maxPages; page++) {
+    const data = await getJson(
+      `https://www.themuse.com/api/public/jobs?category=Design+and+UX&page=${page}`
+    );
+    const results = data?.results || [];
+    if (!results.length) break;
+    for (const r of results) {
+      out.push({
+        source: 'themuse',
+        externalId: String(r.id || ''),
+        title: r.name || '',
+        company: r.company?.name || '',
+        location: (r.locations || []).map(l => l.name).join(', ') || 'Various',
+        url: r.refs?.landing_page || '',
+        description: stripHtml(r.contents || '').slice(0, 8000),
+        postedAt: r.publication_date || null,
+      });
+    }
+    if (page >= (data?.page_count || 1)) break;
+  }
+  return out;
+}
+
 async function fetchWorkingNomads() {
   const data = await getJson('https://www.workingnomads.com/api/exposed_jobs/');
   const DESIGN = ['design', 'ux', 'ui'];
@@ -378,6 +446,45 @@ function titleMatches(title, filters) {
   const t = (title || '').toLowerCase();
   return filters.some(f => f && t.includes(f.toLowerCase().trim()));
 }
+
+// Positive signal: job explicitly welcomes worldwide candidates or offers
+// visa sponsorship. We surface these with a 🌍 badge in the UI.
+const GLOBAL_FRIENDLY_PATTERNS = [
+  /\bremote\s+(?:from\s+)?(?:any|anywhere|worldwide|globally?)\b/i,
+  /\b(?:work|hire)\s+from\s+anywhere\b/i,
+  /\b(?:fully\s+)?remote(?:[,.\s]+(?:global|worldwide|anywhere))\b/i,
+  /\bglobal(?:ly)?\s+remote\b/i,
+  /\bremote\s+(?:globally|first|anywhere)\b/i,
+  /\b(?:open\s+to|hiring|hire)\s+candidates?\s+(?:from\s+)?(?:anywhere|worldwide|globally|any\s+country)\b/i,
+  /\bvisa\s+sponsorship\s+(?:is\s+)?(?:available|offered|provided)\b/i,
+  /\b(?:we|will)\s+sponsor\s+(?:your\s+)?(?:visa|work\s+permit|relocation)\b/i,
+  /\brelocation\s+(?:assistance|support|package)\s+(?:available|offered|provided)\b/i,
+];
+
+function detectGlobalFriendly(job) {
+  const text = `${job.title || ''}\n${job.location || ''}\n${job.description || ''}`;
+  return GLOBAL_FRIENDLY_PATTERNS.some(re => re.test(text));
+}
+
+// Generic "requires citizenship/residency of a specific country" detector.
+// Catches the most common phrasings across regions: US, UK, EU/EEA, Canada,
+// Australia, Singapore, India, Germany, etc. The earlier US-specific list
+// remains as well to handle ITAR / clearance language that is US-only.
+const COUNTRY_ONLY_PATTERNS = [
+  // Generic citizenship/residency requirements — match any country name
+  /\bmust\s+be\s+(?:a\s+)?(?:U\.?\s*S\.?|UK|British|EU|EEA|European|Canadian|Australian|Singaporean|Indian|German|French|Dutch|Irish|Swiss|Israeli|Japanese)\s+(?:citizen|national|resident|passport\s+holder)\b/i,
+  /\b(?:U\.?\s*S\.?|UK|British|EU|EEA|European|Canadian|Australian|Singaporean|Indian|German|French|Dutch|Irish|Swiss|Israeli|Japanese)\s+(?:citizens?|nationals?|residents?|passport\s+holders?)\s+only\b/i,
+  /\bmust\s+(?:reside|live|be\s+based)\s+in\s+(?:the\s+)?(?:U\.?\s*S\.?|United\s+States|UK|United\s+Kingdom|Canada|Australia|Germany|France|Singapore|Ireland|Netherlands|Switzerland|Israel|Japan)\b/i,
+  /\bmust\s+have\s+(?:the\s+)?(?:legal\s+)?right\s+to\s+work\s+in\s+(?:the\s+)?(?:U\.?\s*S\.?|United\s+States|UK|United\s+Kingdom|Canada|Australia|Germany|France|Singapore|Ireland|Netherlands|Switzerland|Israel|Japan|EU|EEA)\s+without\s+sponsorship\b/i,
+  /\bauthoriz(?:ed|ation)\s+to\s+work\s+in\s+(?:the\s+)?(?:U\.?\s*S\.?|United\s+States|UK|United\s+Kingdom|Canada|Australia|Germany|France|Singapore|Ireland|Netherlands|Switzerland|Israel|Japan|EU|EEA)\s+without\s+(?:current\s+or\s+future\s+)?sponsorship\b/i,
+  /\b(?:U\.?\s*S\.?|UK|British|EU|EEA|European|Canadian|Australian|Singaporean|Indian|German|French|Dutch|Irish|Swiss|Israeli|Japanese)[\s-]based\s+candidates?\s+only\b/i,
+  // No-sponsorship clauses (independent of country)
+  /\bno\s+(?:visa\s+)?sponsorship\s+(?:is\s+)?(?:available|offered|provided)\b/i,
+  /\bunable\s+to\s+(?:provide|offer|sponsor)\s+(?:visa\s+)?sponsorship\b/i,
+  /\bdo(?:es)?\s+not\s+(?:provide|offer|sponsor)\s+(?:visa\s+)?sponsorship\b/i,
+  /\bvisa\s+sponsorship\s+(?:is\s+)?not\s+(?:available|offered|provided)\b/i,
+  /\bwe\s+(?:cannot|don'?t|do\s+not)\s+sponsor\b/i,
+];
 
 const US_ONLY_PATTERNS = [
   /\bU\.?\s*S\.?\s*citizen(?:ship)?\s+(?:is\s+)?(?:required|mandatory|a\s+requirement)\b/i,
@@ -412,6 +519,21 @@ function detectUsOnly(job) {
   return null;
 }
 
+// Worldwide-friendly visa check. Returns exclusion reason if the job
+// requires citizenship/residency of a specific country that doesn't match
+// the candidate's. Used for non-US candidates so they don't see UK-only,
+// EU-only, Canada-only, etc. jobs either.
+function detectCountrySpecific(job, candidateCountry) {
+  const text = `${job.title || ''}\n${job.location || ''}\n${job.description || ''}`;
+  // Skip if the job is explicitly global-friendly — sponsorship offered etc.
+  if (detectGlobalFriendly(job)) return null;
+  for (const re of COUNTRY_ONLY_PATTERNS) {
+    const m = re.exec(text);
+    if (m) return `Local-only: matched "${m[0].slice(0, 80)}"`;
+  }
+  return null;
+}
+
 // ────────────────────────────────────────────────────────────────────────────
 // /fetch-jobs handler
 // Body (all optional):
@@ -429,6 +551,11 @@ const DEFAULT_GREENHOUSE = [
   'instacart', 'doordashusa', 'robinhood',
 ];
 const DEFAULT_LEVER = ['palantir', 'mistral'];
+// Ashby — every slug here was confirmed live with designer jobs.
+const DEFAULT_ASHBY = [
+  'openai', 'Linear', 'Notion', 'Ramp', 'Mistral', 'Cohere',
+  'Lovable', 'browserbase', 'replit', 'Posthog', 'Sentry', 'Plaid', 'stytch',
+];
 
 async function handleFetchJobs(request) {
   const body = await request.json().catch(() => ({}));
@@ -438,17 +565,21 @@ async function handleFetchJobs(request) {
     ? body.greenhouseCompanies : DEFAULT_GREENHOUSE;
   const lv = Array.isArray(body.leverCompanies) && body.leverCompanies.length
     ? body.leverCompanies : DEFAULT_LEVER;
+  const ab = Array.isArray(body.ashbyCompanies) && body.ashbyCompanies.length
+    ? body.ashbyCompanies : DEFAULT_ASHBY;
 
   // All fetches in parallel via Promise.allSettled — one failure doesn't sink the rest.
   const tasks = [
     ...gh.map(s => ['greenhouse:' + s, () => fetchGreenhouse(s)]),
     ...lv.map(s => ['lever:' + s, () => fetchLever(s)]),
+    ...ab.map(s => ['ashby:' + s, () => fetchAshby(s)]),
     ['remoteok', fetchRemoteOK],
     ['remotive', fetchRemotive],
     ['arbeitnow', fetchArbeitnow],
     ['jobicy', fetchJobicy],
     ['weworkremotely', fetchWeWorkRemotely],
     ['workingnomads', fetchWorkingNomads],
+    ['themuse', () => fetchTheMuse(5)],
   ];
 
   const settled = await Promise.allSettled(tasks.map(([_, fn]) => fn()));
@@ -479,11 +610,21 @@ async function handleFetchJobs(request) {
   // Filter to matching titles (cheap, no LLM needed)
   const titleFiltered = dedup.filter(j => titleMatches(j.title, titleFilters));
 
-  // Tag US-only excluded
+  // Two-pass tagging:
+  //   excluded     — hard-block jobs requiring local citizenship anywhere
+  //   globalFriendly — surface jobs that explicitly welcome worldwide candidates
   const nonUs = country && !['united states', 'usa', 'us'].includes(country.toLowerCase());
   const final = titleFiltered.map(j => {
-    const excluded = nonUs ? detectUsOnly(j) : null;
-    return { ...j, excluded };
+    // For non-US candidates, exclude both US-only AND any-other-country-only language.
+    // For US-based candidates, only exclude truly local-only (uses the generic check).
+    const excluded = nonUs
+      ? (detectUsOnly(j) || detectCountrySpecific(j, country))
+      : null;
+    return {
+      ...j,
+      excluded,
+      globalFriendly: !excluded && detectGlobalFriendly(j),
+    };
   });
 
   return {
@@ -491,6 +632,7 @@ async function handleFetchJobs(request) {
     afterDedupe: dedup.length,
     afterTitleFilter: titleFiltered.length,
     excludedUsOnly: final.filter(j => j.excluded).length,
+    globalFriendly: final.filter(j => j.globalFriendly).length,
     counts,
     errors,
     jobs: final,
