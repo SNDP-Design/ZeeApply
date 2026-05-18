@@ -49,9 +49,10 @@ function corsHeaders(origin, allowed) {
 // 503 (overloaded), or RESOURCE_EXHAUSTED (daily quota) are skipped and the
 // chain falls through. Auth errors surface immediately.
 const GEMINI_MODELS = [
-  'gemini-3.1-pro',
+  'gemini-3.1-pro-preview',
   'gemini-3-flash-preview',
-  'gemini-3-flash-lite',
+  'gemini-3.1-flash-lite',
+  'gemini-3.1-flash-lite-preview',
   'gemini-2.5-pro',
   'gemini-2.5-flash',
   'gemini-2.5-flash-lite',
