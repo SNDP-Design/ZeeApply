@@ -26,36 +26,29 @@
   small{color:var(--muted);font-size:12px}
 
   /* App shell */
-  .app{display:grid;grid-template-columns:240px 1fr;min-height:100vh}
-  @media(max-width:880px){.app{grid-template-columns:1fr}}
+  .app{display:flex;flex-direction:column;min-height:100vh}
 
-  /* Sidebar */
-  .side{background:linear-gradient(180deg,#0a0a0a,#050505);border-right:1px solid var(--line);padding:16px 12px;position:sticky;top:0;height:100vh;display:flex;flex-direction:column;gap:8px;overflow-y:auto}
-  @media(max-width:880px){.side{position:relative;height:auto;border-right:0;border-bottom:1px solid var(--line)}}
-  .brand{display:flex;align-items:center;gap:10px;padding:6px 8px;margin-bottom:8px}
-  .logo{width:32px;height:32px;border-radius:8px;background:#000;border:1px solid #333;display:inline-flex;align-items:center;justify-content:center;font-weight:800;font-size:16px}
-  .brand h1{font-size:15px;margin:0;font-weight:700}
-  .brand small{display:block;font-size:11px}
-
-  .nav{display:flex;flex-direction:column;gap:2px;margin-top:4px}
-  .nav .group-label{font-size:10px;text-transform:uppercase;letter-spacing:.15em;color:var(--muted);padding:14px 10px 4px}
-  .nav button{display:flex;align-items:center;gap:10px;background:transparent;border:1px solid transparent;color:var(--muted);text-align:left;padding:9px 10px;border-radius:8px;width:100%;transition:.12s;font-size:13px;font-weight:500}
-  .nav button:hover{color:var(--ink);background:var(--panel)}
-  .nav button.active{background:linear-gradient(180deg,#1c1c1c,#141414);border-color:var(--line);color:var(--ink);box-shadow:inset 0 0 0 1px rgba(255,255,255,.06)}
-  .nav .count{margin-left:auto;font-size:11px;color:var(--muted);background:var(--chip);padding:2px 7px;border-radius:999px;border:1px solid var(--line)}
-  .nav button.active .count{color:var(--ink)}
-
-  .side .foot{margin-top:auto;padding:10px 8px;font-size:11px;color:var(--muted);border-top:1px solid var(--line)}
-  .side .foot .user{display:flex;align-items:center;gap:10px;margin-bottom:8px}
-  .side .foot .avatar{width:28px;height:28px;border-radius:50%;background:var(--chip);border:1px solid var(--line);overflow:hidden;flex-shrink:0}
-  .side .foot .avatar img{width:100%;height:100%;display:block}
-  .side .foot .uname{color:var(--ink);font-size:12px;font-weight:600;line-height:1.2;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-  .side .foot .uemail{font-size:10px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-  .side .foot button.signout{width:100%;background:transparent;border:1px solid var(--line);color:var(--muted);padding:6px;border-radius:6px;font-size:11px}
-  .side .foot button.signout:hover{color:var(--ink);border-color:#333}
+  /* Top navbar */
+  .navbar{position:sticky;top:0;z-index:100;display:flex;align-items:center;gap:8px;padding:0 24px;height:54px;background:linear-gradient(180deg,#0c0c0c,#080808);border-bottom:1px solid var(--line);flex-shrink:0}
+  .navbar .brand{display:flex;align-items:center;gap:9px;text-decoration:none;color:var(--ink);margin-right:4px}
+  .navbar .logo{width:28px;height:28px;border-radius:7px;background:#000;border:1px solid #333;display:inline-flex;align-items:center;justify-content:center;font-weight:800;font-size:14px;flex-shrink:0}
+  .navbar .brand-name{font-size:14px;font-weight:700;letter-spacing:-.2px}
+  .navbar .nav-links{display:flex;gap:2px}
+  .navbar .nav-links button{background:transparent;border:1px solid transparent;color:var(--muted);padding:6px 12px;border-radius:7px;font:inherit;font-size:13px;font-weight:500;cursor:pointer;transition:.12s;display:flex;align-items:center;gap:6px}
+  .navbar .nav-links button:hover{color:var(--ink);background:var(--panel)}
+  .navbar .nav-links button.active{background:var(--panel);border-color:var(--line);color:var(--ink)}
+  .nav-count{font-size:10px;background:var(--chip);border:1px solid var(--line);padding:1px 6px;border-radius:999px;color:var(--muted)}
+  .navbar .nav-links button.active .nav-count{color:var(--ink)}
+  .navbar .right{margin-left:auto;display:flex;align-items:center;gap:10px}
+  .navbar .user-chip{display:flex;align-items:center;gap:8px}
+  .navbar .avatar{width:26px;height:26px;border-radius:50%;background:var(--chip);border:1px solid var(--line);overflow:hidden;flex-shrink:0}
+  .navbar .avatar img{width:100%;height:100%;display:block}
+  .navbar .uname{font-size:13px;font-weight:600;color:var(--ink);max-width:130px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .navbar .signout-btn{background:transparent;border:1px solid var(--line);color:var(--muted);padding:5px 11px;border-radius:6px;font:inherit;font-size:11px;cursor:pointer;transition:.12s}
+  .navbar .signout-btn:hover{color:var(--ink);border-color:#444}
 
   /* Main */
-  main{padding:20px 28px 60px;overflow-x:hidden}
+  main{padding:20px 24px 60px;overflow-x:hidden}
   @media(max-width:560px){main{padding:16px}}
   .topbar{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:16px;flex-wrap:wrap}
   .crumbs{color:var(--muted);font-size:12px}
@@ -90,8 +83,10 @@
   /* Job list */
   .toolbar{display:flex;align-items:center;gap:8px;margin:14px 0 8px;flex-wrap:wrap}
   .toolbar .right{margin-left:auto;display:flex;gap:6px;font-size:12px;color:var(--muted)}
-  .joblist{display:grid;grid-template-columns:repeat(2,1fr);gap:12px}
-  @media(max-width:700px){.joblist{grid-template-columns:1fr}}
+  .joblist{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}
+  @media(max-width:1100px){.joblist{grid-template-columns:repeat(3,1fr)}}
+  @media(max-width:750px){.joblist{grid-template-columns:repeat(2,1fr)}}
+  @media(max-width:480px){.joblist{grid-template-columns:1fr}}
   .jobrow{display:flex;flex-direction:column;gap:10px;padding:16px;background:var(--panel);border:1px solid var(--line);border-radius:10px;cursor:default;transition:.12s}
   .jobrow:hover{border-color:#333;background:var(--panel-2)}
   .jobrow .meta{flex:1}
@@ -171,31 +166,23 @@
 <!-- ────────────────────────────────────────────────────────────────────── -->
 <div id="app" class="app hidden">
 
-  <aside class="side">
+  <nav class="navbar">
     <a href="/" class="brand">
       <span class="logo">Z</span>
-      <div>
-        <h1>ZeeApply</h1>
-        <small>private build</small>
-      </div>
+      <span class="brand-name">ZeeApply</span>
     </a>
-
-    <div class="nav" id="nav">
-      <button data-view="jobs">📋 Jobs <span class="count" data-count="visible">0</span></button>
-      <button data-view="profile">👤 Profile</button>
+    <div class="nav-links" id="nav">
+      <button data-view="jobs">Jobs <span class="nav-count" data-count="visible">0</span></button>
+      <button data-view="profile">Profile</button>
     </div>
-
-    <div class="foot">
-      <div class="user">
+    <div class="right">
+      <div class="user-chip">
         <div class="avatar"><img id="userAvatar" alt=""/></div>
-        <div style="overflow:hidden">
-          <div class="uname" id="userName">—</div>
-          <div class="uemail" id="userEmail">—</div>
-        </div>
+        <span class="uname" id="userName">—</span>
       </div>
-      <button class="signout" id="signoutBtn">Sign out</button>
+      <button class="signout-btn" id="signoutBtn">Sign out</button>
     </div>
-  </aside>
+  </nav>
 
   <main>
     <!-- View: Profile -->
@@ -283,10 +270,6 @@
         <div>
           <h2 id="jobsTitle">Jobs</h2>
         </div>
-        <div class="actions">
-          <button class="btn ghost" id="resetNewBtn" title="Wipe every job in your feed so you can re-fetch fresh data.">↻ Reset feed</button>
-          <button class="btn primary" id="fetchBtn">Fetch jobs</button>
-        </div>
       </div>
 
       <div class="toolbar">
@@ -348,7 +331,7 @@ const API_BASE = (location.hostname === 'localhost' || location.hostname === '12
 // Default designer-focused profile applied to new users on first sign-in.
 const DEFAULT_PROFILE = {
   targetRole: 'Senior Product Designer',
-  titleFilters: 'ui designer, ux designer, product designer, ui/ux designer, ux/ui designer, design lead, head of design, principal designer, staff designer, senior designer, design manager, visual designer, interaction designer',
+  titleFilters: 'product designer, ui/ux designer, ux/ui designer, ui ux designer',
   country: 'India',
   workAuthorization: 'Need visa sponsorship outside India; remote-global preferred',
   locations: 'Remote, Bengaluru, India',
@@ -394,6 +377,7 @@ const state = {
   currentView: 'jobs',
   currentJobKey: null,  // for job detail view
   indiaOnly: false,     // 🇮🇳 India / Bangalore filter toggle
+  fetching: false,      // prevents concurrent auto-fetches
 };
 
 // India-location detector. Tests the job's location text for any major
@@ -492,10 +476,12 @@ fbAuth.onAuthStateChanged(async (user) => {
   show($('app'));
   // Populate sidebar user info
   $('userName').textContent = user.displayName || user.email || 'You';
-  $('userEmail').textContent = user.email || '';
   if (user.photoURL) $('userAvatar').src = user.photoURL;
   await loadFromFirestore();
   routeFromHash();
+  // Auto-fetch fresh jobs every time the app is opened — no button needed.
+  // Existing jobs from Firestore are already shown; new ones merge in silently.
+  fetchJobs();
 });
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -613,13 +599,12 @@ function parseCsv(s) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────
-// FETCH JOBS
+// FETCH JOBS — called automatically on sign-in, no button needed
 // ─────────────────────────────────────────────────────────────────────────
-$('fetchBtn').addEventListener('click', async () => {
-  if (!state.profile) return;
-  const btn = $('fetchBtn');
-  btn.disabled = true;
-  setStatusPill('Fetching jobs…');
+async function fetchJobs() {
+  if (!state.profile || state.fetching) return;
+  state.fetching = true;
+  setStatusPill('Fetching fresh jobs…', 'warn');
   try {
     const data = await api('/fetch-jobs', {
       titleFilters: parseCsv(state.profile.titleFilters),
@@ -658,55 +643,15 @@ $('fetchBtn').addEventListener('click', async () => {
     renderJobs();
     const visaDropped = data.excludedVisa || 0;
     const visaNote = visaDropped ? ` · ${visaDropped} visa-required dropped` : '';
-    setStatusPill(`✓ Fetched ${all.length} · saved ${inserted} new · skipped ${skipped} dupes${visaNote}`, '');
-    toast(`Fetched ${all.length} jobs · ${inserted} new${visaNote}`, 'ok');
+    setStatusPill(`✓ ${all.length} jobs · ${inserted} new · ${skipped} dupes${visaNote}`, '');
+    if (inserted > 0) toast(`${inserted} new jobs added`, 'ok');
   } catch (e) {
-    setStatusPill('Fetch failed', 'bad');
-    toast('Fetch failed: ' + e.message, 'err');
+    setStatusPill('Fetch failed — ' + e.message, 'bad');
   } finally {
-    btn.disabled = false;
+    state.fetching = false;
   }
-});
+}
 
-// ─────────────────────────────────────────────────────────────────────────
-// RESET FEED — bulk-deletes every job in users/{uid}/jobs. Useful when an
-// upstream Worker change improves data quality and you want a fresh pull.
-// ─────────────────────────────────────────────────────────────────────────
-$('resetNewBtn').addEventListener('click', async () => {
-  const keys = Object.keys(state.jobs);
-  if (!keys.length) {
-    toast('No jobs to clear', 'err');
-    return;
-  }
-  const ok = confirm(
-    `Delete all ${keys.length} jobs from your feed?\n\n` +
-    `After this you can click 'Fetch jobs' to repopulate with the latest data.`
-  );
-  if (!ok) return;
-  const btn = $('resetNewBtn');
-  btn.disabled = true;
-  setStatusPill(`Deleting ${keys.length} jobs…`);
-  try {
-    // Firestore: 500 writes/batch. Use 400 for safety margin.
-    for (let i = 0; i < keys.length; i += 400) {
-      const chunk = keys.slice(i, i + 400);
-      const batch = db.batch();
-      for (const key of chunk) {
-        batch.delete(jobDoc(key));
-        delete state.jobs[key];
-      }
-      await batch.commit();
-    }
-    renderJobs();
-    setStatusPill(`✓ Cleared ${keys.length} jobs. Click 'Fetch jobs' to repopulate.`, '');
-    toast(`Cleared ${keys.length} jobs`, 'ok');
-  } catch (e) {
-    setStatusPill('Reset failed', 'bad');
-    toast('Reset failed: ' + e.message, 'err');
-  } finally {
-    btn.disabled = false;
-  }
-});
 
 // ─────────────────────────────────────────────────────────────────────────
 // RENDER JOB LIST
