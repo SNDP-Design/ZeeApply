@@ -272,7 +272,7 @@ async function fetchGreenhouse(slug) {
     company: slug,
     location: j.location?.name || null,
     url: j.absolute_url || '',
-    description: stripHtml(j.content || '').slice(0, 8000),
+    description: (j.content || '').slice(0, 16000),
     postedAt: j.updated_at || null,
   }));
 }
@@ -289,7 +289,7 @@ async function fetchLever(slug) {
       company: slug,
       location: j.categories?.location || null,
       url: j.hostedUrl || '',
-      description: stripHtml(descParts.join('\n\n')).slice(0, 8000),
+      description: descParts.join('\n\n').slice(0, 16000),
       postedAt: null,
     };
   });
@@ -304,7 +304,7 @@ async function fetchRemoteOK() {
     company: j.company || '',
     location: j.location || 'Remote',
     url: j.url || j.apply_url || '',
-    description: stripHtml(j.description || '').slice(0, 8000),
+    description: (j.description  || '').slice(0, 16000),
     postedAt: j.date || null,
   }));
 }
@@ -318,7 +318,7 @@ async function fetchRemotive() {
     company: j.company_name || '',
     location: j.candidate_required_location || 'Remote',
     url: j.url || '',
-    description: stripHtml(j.description || '').slice(0, 8000),
+    description: (j.description  || '').slice(0, 16000),
     postedAt: j.publication_date || null,
   }));
 }
@@ -335,7 +335,7 @@ async function fetchArbeitnow() {
       company: j.company_name || '',
       location: loc || '—',
       url: j.url || '',
-      description: stripHtml(j.description || '').slice(0, 8000),
+      description: (j.description  || '').slice(0, 16000),
       postedAt: String(j.created_at || ''),
     };
   });
@@ -350,7 +350,7 @@ async function fetchJobicy() {
     company: j.companyName || '',
     location: j.jobGeo || 'Remote',
     url: j.url || '',
-    description: stripHtml(j.jobDescription || '').slice(0, 8000),
+    description: (j.jobDescription  || '').slice(0, 16000),
     postedAt: j.pubDate || null,
   }));
 }
@@ -400,7 +400,7 @@ async function fetchWeWorkRemotely() {
       company,
       location: 'Remote',
       url: item.link || '',
-      description: stripHtml(item.description || '').slice(0, 8000),
+      description: (item.description  || '').slice(0, 16000),
       postedAt: item.pubDate || null,
     };
   });
@@ -465,11 +465,55 @@ async function fetchTheMuse(maxPages = 5) {
         company: r.company?.name || '',
         location: (r.locations || []).map(l => l.name).join(', ') || 'Various',
         url: r.refs?.landing_page || '',
-        description: stripHtml(r.contents || '').slice(0, 8000),
+        description: (r.contents  || '').slice(0, 16000),
         postedAt: r.publication_date || null,
       });
     }
     if (page >= (data?.page_count || 1)) break;
+  }
+  return out;
+}
+
+// Adzuna — aggregated job listings from across the web with country-specific
+// coverage. India tier (country=in) returns real India-based postings that
+// none of the ATS adapters surface. Free tier: 250 calls/month per app.
+// Gated on env vars — silently returns [] when ADZUNA_APP_ID/KEY aren't set.
+// Set via wrangler:
+//   wrangler secret put ADZUNA_APP_ID
+//   wrangler secret put ADZUNA_APP_KEY
+async function fetchAdzuna(env, { keyword = 'designer', country = 'in', pages = 2 } = {}) {
+  if (!env.ADZUNA_APP_ID || !env.ADZUNA_APP_KEY) return [];
+  const out = [];
+  for (let page = 1; page <= pages; page++) {
+    const params = new URLSearchParams({
+      app_id: env.ADZUNA_APP_ID,
+      app_key: env.ADZUNA_APP_KEY,
+      results_per_page: '50',
+      what: keyword,
+      'content-type': 'application/json',
+    });
+    let data;
+    try {
+      data = await getJson(`https://api.adzuna.com/v1/api/jobs/${country}/search/${page}?${params}`);
+    } catch (e) {
+      // Quota exhausted or transient — stop pagination but keep what we have
+      break;
+    }
+    const results = data?.results || [];
+    if (!results.length) break;
+    for (const r of results) {
+      out.push({
+        source: `adzuna:${country}`,
+        externalId: String(r.id),
+        title: r.title || '',
+        company: r.company?.display_name || '',
+        location: r.location?.display_name || '',
+        url: r.redirect_url || '',
+        description: (r.description  || '').slice(0, 16000),
+        postedAt: r.created || null,
+      });
+    }
+    if (results.length < 50) break;  // last page
   }
   return out;
 }
@@ -488,7 +532,7 @@ async function fetchWorkingNomads() {
     company: j.company_name || '',
     location: j.location || 'Remote',
     url: j.url || '',
-    description: stripHtml(j.description || '').slice(0, 8000),
+    description: (j.description  || '').slice(0, 16000),
     postedAt: j.pub_date || null,
   }));
 }
@@ -497,10 +541,21 @@ async function fetchWorkingNomads() {
 // Filter helpers (server-side so we don't ship 4000 jobs over the wire)
 // ────────────────────────────────────────────────────────────────────────────
 
-function titleMatches(title, filters) {
-  if (!filters || filters.length === 0) return true;
-  const t = (title || '').toLowerCase();
-  return filters.some(f => f && t.includes(f.toLowerCase().trim()));
+// Build a fast title-matcher with the filters pre-lowercased ONCE. Avoids
+// re-calling toLowerCase + trim on every (filter × job) pair, which adds up
+// to ~80,000 string allocations at the scale of 6000+ jobs × 13 filters and
+// can blow the Workers free-tier 10ms CPU budget.
+function buildTitleMatcher(filters) {
+  if (!Array.isArray(filters) || filters.length === 0) return () => true;
+  const lowered = filters
+    .map(f => (f || '').toString().toLowerCase().trim())
+    .filter(Boolean);
+  if (!lowered.length) return () => true;
+  return (title) => {
+    const t = (title || '').toLowerCase();
+    for (const f of lowered) if (t.includes(f)) return true;
+    return false;
+  };
 }
 
 // Positive signal: job explicitly welcomes worldwide candidates or offers
@@ -602,18 +657,27 @@ function detectCountrySpecific(job, candidateCountry) {
 // ────────────────────────────────────────────────────────────────────────────
 
 const DEFAULT_GREENHOUSE = [
+  // US / global
   'anthropic', 'airbnb', 'stripe', 'discord', 'cloudflare', 'figma',
   'databricks', 'gitlab', 'duolingo', 'reddit', 'pinterest', 'asana',
   'instacart', 'doordashusa', 'robinhood',
+  // India / India-heavy (verified public boards as of build time)
+  'groww', 'postman', 'phonepe', 'druva',
 ];
-const DEFAULT_LEVER = ['palantir', 'mistral'];
-// Ashby — every slug here was confirmed live with designer jobs.
+const DEFAULT_LEVER = [
+  'palantir', 'mistral',
+  // India / India-heavy
+  'meesho', 'paytm', 'mindtickle', 'cred',
+];
+// Ashby — every slug here was confirmed live with public board access.
 const DEFAULT_ASHBY = [
   'openai', 'Linear', 'Notion', 'Ramp', 'Mistral', 'Cohere',
   'Lovable', 'browserbase', 'replit', 'Posthog', 'Sentry', 'Plaid', 'stytch',
+  // India
+  'Atlan',
 ];
 
-async function handleFetchJobs(request) {
+async function handleFetchJobs(request, env) {
   const body = await request.json().catch(() => ({}));
   const titleFilters = Array.isArray(body.titleFilters) ? body.titleFilters : [];
   const country = (body.country || '').trim();
@@ -623,6 +687,13 @@ async function handleFetchJobs(request) {
     ? body.leverCompanies : DEFAULT_LEVER;
   const ab = Array.isArray(body.ashbyCompanies) && body.ashbyCompanies.length
     ? body.ashbyCompanies : DEFAULT_ASHBY;
+
+  // Pick the most useful keyword for Adzuna: first explicit titleFilter,
+  // otherwise the generic 'designer'. Adzuna doesn't accept arbitrary lists.
+  const adzunaKeyword = titleFilters[0] || 'designer';
+  // Default to India for the candidate's country; fall back to 'gb' or 'us'
+  // if it'd return nothing — but India is the design intent here.
+  const adzunaCountry = /india/i.test(country) ? 'in' : 'in';
 
   // All fetches in parallel via Promise.allSettled — one failure doesn't sink the rest.
   const tasks = [
@@ -636,6 +707,9 @@ async function handleFetchJobs(request) {
     ['weworkremotely', fetchWeWorkRemotely],
     ['workingnomads', fetchWorkingNomads],
     ['themuse', () => fetchTheMuse(5)],
+    // Adzuna India — only runs if ADZUNA_APP_ID/KEY secrets are set on the
+    // Worker. Returns [] silently otherwise.
+    [`adzuna:${adzunaCountry}`, () => fetchAdzuna(env, { keyword: adzunaKeyword, country: adzunaCountry })],
   ];
 
   const settled = await Promise.allSettled(tasks.map(([_, fn]) => fn()));
@@ -664,7 +738,16 @@ async function handleFetchJobs(request) {
   }
 
   // Filter to matching titles (cheap, no LLM needed)
-  const titleFiltered = dedup.filter(j => titleMatches(j.title, titleFilters));
+  const matchTitle = buildTitleMatcher(titleFilters);
+  const titleFiltered = dedup.filter(j => matchTitle(j.title));
+
+  // Now strip HTML from descriptions — ONLY on the survivors (~100 jobs)
+  // instead of all 6000+. Deferred to keep the Worker free-tier CPU budget
+  // happy. Adapters return raw description capped at 16KB; here we strip +
+  // slice to 8KB final.
+  for (const j of titleFiltered) {
+    j.description = stripHtml(j.description || '').slice(0, 8000);
+  }
 
   // Two-pass tagging:
   //   excluded     — hard-block jobs requiring local citizenship anywhere
@@ -771,7 +854,7 @@ export default {
         return json({ error: 'Use POST' }, 405);
       }
 
-      if (path === '/fetch-jobs') return json(await handleFetchJobs(request));
+      if (path === '/fetch-jobs') return json(await handleFetchJobs(request, env));
       if (path === '/score') return json(await handleScore(env, request));
       if (path === '/cover-letter') return json(await handleCoverLetter(env, request));
 
