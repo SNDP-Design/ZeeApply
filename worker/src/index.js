@@ -2,13 +2,8 @@
  * ZeeApply API — Cloudflare Worker.
  *
  * Endpoints:
- *   GET  /health                         → ping
- *   POST /fetch-jobs                     → aggregates from all free job sources
- *   POST /score        body: {profile, job}   → Gemini score 0-100 + reason
- *   POST /cover-letter body: {profile, job}   → Gemini-drafted tailored letter
- *
- * Free + always-on. The Gemini API key lives ONLY as a Wrangler secret
- * (env.GEMINI_API_KEY) — never sent to the browser.
+ *   GET  /health      → ping
+ *   POST /fetch-jobs  → aggregates from all free job sources
  *
  * CORS is locked to known ZeeApply origins (GitHub Pages + localhost).
  */
@@ -37,149 +32,6 @@ function corsHeaders(origin, allowed) {
     'Access-Control-Max-Age': '86400',
     'Vary': 'Origin',
   };
-}
-
-// ────────────────────────────────────────────────────────────────────────────
-// Gemini fallback chain
-// Tries each model in order; falls through on rate-limit / quota / 404 / 503.
-// ────────────────────────────────────────────────────────────────────────────
-
-// Try models in this exact order. The first one whose API call succeeds wins.
-// Models that 404 (not yet released for your account), 429 (per-minute quota),
-// 503 (overloaded), or RESOURCE_EXHAUSTED (daily quota) are skipped and the
-// chain falls through. Auth errors surface immediately.
-const GEMINI_MODELS = [
-  'gemini-3.1-pro-preview',
-  'gemini-3-flash-preview',
-  'gemini-3.1-flash-lite',
-  'gemini-3.1-flash-lite-preview',
-  'gemini-2.5-pro',
-  'gemini-2.5-flash',
-  'gemini-2.5-flash-lite',
-  'gemini-2.0-flash',
-];
-const GEMINI_BASE = 'https://generativelanguage.googleapis.com/v1beta/models/';
-
-// Recoverable: try next model.
-function isRecoverable(status, bodyText) {
-  if (status === 429 || status === 503 || status === 404 || status === 403) return true;
-  const t = (bodyText || '').toLowerCase();
-  return [
-    'resource_exhausted', 'quota', 'rate', 'unavailable',
-    'not_found', 'not found', 'model not found', 'permission_denied',
-  ].some(tok => t.includes(tok));
-}
-
-async function callGemini(env, { systemInstruction, prompt, responseSchema, maxTokens = 800, temperature = 0.7 }) {
-  if (!env.GEMINI_API_KEY) {
-    throw new Error('GEMINI_API_KEY secret is not set. Run: wrangler secret put GEMINI_API_KEY');
-  }
-  const generationConfig = { maxOutputTokens: maxTokens, temperature };
-  if (responseSchema) {
-    generationConfig.responseMimeType = 'application/json';
-    generationConfig.responseSchema = responseSchema;
-  }
-  const body = {
-    contents: [{ role: 'user', parts: [{ text: prompt }] }],
-    systemInstruction: { parts: [{ text: systemInstruction }] },
-    generationConfig,
-  };
-
-  let lastErr = null;
-  for (const model of GEMINI_MODELS) {
-    const url = `${GEMINI_BASE}${model}:generateContent?key=${env.GEMINI_API_KEY}`;
-    try {
-      const r = await fetch(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-      });
-      if (r.ok) {
-        const data = await r.json();
-        const text = data?.candidates?.[0]?.content?.parts?.map(p => p.text || '').join('').trim() || '';
-        return { text, model };
-      }
-      const errText = await r.text();
-      if (isRecoverable(r.status, errText)) {
-        lastErr = new Error(`${model} ${r.status}: ${errText.slice(0, 200)}`);
-        continue;
-      }
-      // Non-recoverable (likely 400 / auth) — surface immediately.
-      throw new Error(`${model} ${r.status}: ${errText.slice(0, 300)}`);
-    } catch (e) {
-      lastErr = e;
-      // Network errors are usually transient — keep trying.
-      continue;
-    }
-  }
-  throw lastErr || new Error('All Gemini models failed');
-}
-
-// ────────────────────────────────────────────────────────────────────────────
-// Prompts
-// ────────────────────────────────────────────────────────────────────────────
-
-const SCORE_SYSTEM = `You are a precise job-fit evaluator helping a candidate prioritize applications.
-
-Given the candidate's profile and a single job posting, return JSON:
-{"score": <int 0-100>, "reason": "<<=200 char explanation>"}
-
-Scoring rubric:
-- 85-100: Strong fit — title/seniority/tech stack/location all line up; clear ROI to apply.
-- 60-84: Reasonable fit — most criteria match, 1-2 gaps the candidate could bridge.
-- 30-59: Stretch — partial match; would need a tailored pitch.
-- 0-29: Poor fit — skip.
-
-HARD ZERO (score 0) when:
-- The candidate's country is non-US and the job requires US citizenship, security clearance,
-  Public Trust, ITAR/EAR, or explicitly states "must be authorized to work in the US without
-  sponsorship" with no remote option.
-- The job is on-site in a country/region the candidate cannot work in.
-- Any of the candidate's exclusions hit.
-
-Penalize: title seniority mismatch, location mismatch when candidate is strict, missing must-have
-skills, "preferred US-based" without remote, visa-sponsorship gaps.
-Reward: keyword overlap, domain experience, salary alignment, remote-global postings, explicit
-visa sponsorship mention when needed.`;
-
-const SCORE_SCHEMA = {
-  type: 'object',
-  properties: {
-    score: { type: 'integer' },
-    reason: { type: 'string' },
-  },
-  required: ['score', 'reason'],
-};
-
-const COVER_SYSTEM = `You are drafting a tailored cover letter for the candidate to send for a specific job.
-
-Constraints:
-- 150-220 words, 3 short paragraphs.
-- Open by referencing the specific role and one concrete thing about the company/product (inferred from job desc).
-- Middle: pull 2-3 specific achievements from the resume that map to the job's must-haves. Use real numbers.
-- Close: one-sentence ask for a conversation. No generic filler ("I am writing to apply for...").
-- Do NOT fabricate experience the resume doesn't support. If the resume is thin on a requirement, omit it.
-- Plain text, no markdown, no greeting beyond "Hi <Company> team," and no signature block.
-
-Output the letter only — no preamble, no explanation.`;
-
-function profileText(p) {
-  return [
-    `Target role: ${p?.targetRole || 'unspecified'}`,
-    `Based in country: ${p?.country || 'unspecified'}`,
-    `Work authorization: ${p?.workAuthorization || 'unspecified'}`,
-    `Locations open to: ${p?.locations || 'any'}`,
-    `Minimum salary: ${p?.minSalary || 'flexible'}`,
-    `Must-have keywords: ${p?.keywords || '(none)'}`,
-    `Exclusions: ${p?.exclusions || '(none)'}`,
-    '',
-    'Resume:',
-    p?.resume || '(no resume on file)',
-  ].join('\n');
-}
-
-function jobText(j) {
-  return `Title: ${j.title}\nCompany: ${j.company}\nLocation: ${j.location || 'unspecified'}\nURL: ${j.url || ''}\n\nDescription:\n${(j.description || '').slice(0, 6000)}`;
 }
 
 // ────────────────────────────────────────────────────────────────────────────
@@ -410,9 +262,8 @@ async function fetchWeWorkRemotely() {
 // Ramp, Mistral, Lovable, replit, Posthog, Sentry, Plaid, etc.
 // The jobBoardWithTeams op only exposes brief fields (id, title, locationName).
 // Full descriptions would need 1 follow-up call per job — too many subrequests
-// for the Worker free tier. So Ashby jobs have minimal description; the LLM
-// scorer falls back on title + company + location, and users click through
-// to the Ashby page for the full posting.
+// for the Worker free tier. So Ashby jobs have a minimal description; users
+// click through to the Ashby page for the full posting.
 async function fetchAshby(slug) {
   const query = `query ApiJobBoardWithTeams($organizationHostedJobsPageName: String!) {
     jobBoard: jobBoardWithTeams(organizationHostedJobsPageName: $organizationHostedJobsPageName) {
@@ -558,8 +409,18 @@ function buildTitleMatcher(filters) {
   };
 }
 
-// Positive signal: job explicitly welcomes worldwide candidates or offers
-// visa sponsorship. We surface these with a 🌍 badge in the UI.
+// ────────────────────────────────────────────────────────────────────────────
+// Visa / right-to-work filter
+//
+// Returns an exclusion reason string if the job demands citizenship,
+// residency, or right-to-work in a country that isn't the candidate's —
+// or refuses visa sponsorship in a country the candidate isn't already in.
+// Returns null otherwise. The /fetch-jobs handler drops excluded jobs
+// entirely so they never reach Firestore or the UI.
+// ────────────────────────────────────────────────────────────────────────────
+
+// Positive signal that short-circuits exclusion: job explicitly welcomes
+// worldwide candidates or offers visa sponsorship.
 const GLOBAL_FRIENDLY_PATTERNS = [
   /\bremote\s+(?:from\s+)?(?:any|anywhere|worldwide|globally?)\b/i,
   /\b(?:work|hire)\s+from\s+anywhere\b/i,
@@ -571,44 +432,86 @@ const GLOBAL_FRIENDLY_PATTERNS = [
   /\b(?:we|will)\s+sponsor\s+(?:your\s+)?(?:visa|work\s+permit|relocation)\b/i,
   /\brelocation\s+(?:assistance|support|package)\s+(?:available|offered|provided)\b/i,
 ];
-
-function detectGlobalFriendly(job) {
-  const text = `${job.title || ''}\n${job.location || ''}\n${job.description || ''}`;
+function isGlobalFriendly(text) {
   return GLOBAL_FRIENDLY_PATTERNS.some(re => re.test(text));
 }
 
-// Generic "requires citizenship/residency of a specific country" detector.
-// Catches the most common phrasings across regions: US, UK, EU/EEA, Canada,
-// Australia, Singapore, India, Germany, etc. The earlier US-specific list
-// remains as well to handle ITAR / clearance language that is US-only.
-const COUNTRY_ONLY_PATTERNS = [
-  // Generic citizenship/residency requirements — match any country name
-  /\bmust\s+be\s+(?:a\s+)?(?:U\.?\s*S\.?|UK|British|EU|EEA|European|Canadian|Australian|Singaporean|Indian|German|French|Dutch|Irish|Swiss|Israeli|Japanese)\s+(?:citizen|national|resident|passport\s+holder)\b/i,
-  /\b(?:U\.?\s*S\.?|UK|British|EU|EEA|European|Canadian|Australian|Singaporean|Indian|German|French|Dutch|Irish|Swiss|Israeli|Japanese)\s+(?:citizens?|nationals?|residents?|passport\s+holders?)\s+only\b/i,
-  /\bmust\s+(?:reside|live|be\s+based)\s+in\s+(?:the\s+)?(?:U\.?\s*S\.?|United\s+States|UK|United\s+Kingdom|Canada|Australia|Germany|France|Singapore|Ireland|Netherlands|Switzerland|Israel|Japan)\b/i,
-  /\bmust\s+have\s+(?:the\s+)?(?:legal\s+)?right\s+to\s+work\s+in\s+(?:the\s+)?(?:U\.?\s*S\.?|United\s+States|UK|United\s+Kingdom|Canada|Australia|Germany|France|Singapore|Ireland|Netherlands|Switzerland|Israel|Japan|EU|EEA)\s+without\s+sponsorship\b/i,
-  /\bauthoriz(?:ed|ation)\s+to\s+work\s+in\s+(?:the\s+)?(?:U\.?\s*S\.?|United\s+States|UK|United\s+Kingdom|Canada|Australia|Germany|France|Singapore|Ireland|Netherlands|Switzerland|Israel|Japan|EU|EEA)\s+without\s+(?:current\s+or\s+future\s+)?sponsorship\b/i,
-  /\b(?:U\.?\s*S\.?|UK|British|EU|EEA|European|Canadian|Australian|Singaporean|Indian|German|French|Dutch|Irish|Swiss|Israeli|Japanese)[\s-]based\s+candidates?\s+only\b/i,
-  // No-sponsorship clauses (independent of country)
-  /\bno\s+(?:visa\s+)?sponsorship\s+(?:is\s+)?(?:available|offered|provided)\b/i,
-  /\bunable\s+to\s+(?:provide|offer|sponsor)\s+(?:visa\s+)?sponsorship\b/i,
-  /\bdo(?:es)?\s+not\s+(?:provide|offer|sponsor)\s+(?:visa\s+)?sponsorship\b/i,
-  /\bvisa\s+sponsorship\s+(?:is\s+)?not\s+(?:available|offered|provided)\b/i,
-  /\bwe\s+(?:cannot|don'?t|do\s+not)\s+sponsor\b/i,
-];
+// Country tokens we recognize. The keys are the canonical token; values
+// are the regex alternation fragments used in both the demand patterns
+// (capturing which country the job demands) and the location patterns
+// (deciding whether the job is in the candidate's own country).
+const COUNTRY_DEMAND_NAMES = {
+  us: 'U\\.?\\s*S\\.?|U\\.?S\\.?A|United\\s+States|American',
+  uk: 'UK|U\\.?K\\.?|United\\s+Kingdom|British',
+  eu: 'EU|EEA|European(?:\\s+Union)?',
+  ca: 'Canada|Canadian',
+  au: 'Australia|Australian',
+  sg: 'Singapore|Singaporean',
+  in: 'India|Indian',
+  de: 'Germany|German',
+  fr: 'France|French',
+  nl: 'Netherlands|Dutch',
+  ie: 'Ireland|Irish',
+  ch: 'Switzerland|Swiss',
+  il: 'Israel|Israeli',
+  jp: 'Japan|Japanese',
+};
+const COUNTRY_LOCATION_PATTERNS = {
+  us: /\b(united\s+states|u\.?\s*s\.?\s*a?\b|usa\b|new\s+york|san\s+francisco|seattle|chicago|boston|austin|los\s+angeles|atlanta|denver|miami)\b/i,
+  uk: /\b(united\s+kingdom|u\.?\s*k\.?\b|britain|england|london|manchester|edinburgh|bristol|cambridge\s*,?\s*uk)\b/i,
+  eu: /\b(european\s+union|eu\s+only|eea\b)\b/i,
+  ca: /\b(canada|toronto|vancouver|montreal|ottawa|calgary)\b/i,
+  au: /\b(australia|sydney|melbourne|brisbane|perth)\b/i,
+  sg: /\bsingapore\b/i,
+  in: /\b(india|bangalore|bengaluru|mumbai|delhi|hyderabad|pune|chennai|kolkata|noida|gurgaon|gurugram|ahmedabad|jaipur|kochi|trivandrum|thiruvananthapuram|indore|chandigarh|kerala|karnataka|maharashtra|tamil\s*nadu|telangana|gujarat)\b/i,
+  de: /\b(germany|berlin|munich|hamburg|frankfurt)\b/i,
+  fr: /\b(france|paris|lyon|marseille)\b/i,
+  nl: /\b(netherlands|amsterdam|rotterdam|the\s+hague)\b/i,
+  ie: /\b(ireland|dublin|cork)\b/i,
+  ch: /\b(switzerland|zurich|geneva|basel|bern)\b/i,
+  il: /\b(israel|tel\s*aviv|jerusalem|haifa)\b/i,
+  jp: /\b(japan|tokyo|osaka|kyoto)\b/i,
+};
 
-const US_ONLY_PATTERNS = [
-  /\bU\.?\s*S\.?\s*citizen(?:ship)?\s+(?:is\s+)?(?:required|mandatory|a\s+requirement)\b/i,
-  /\bmust\s+be\s+(?:a\s+)?U\.?\s*S\.?\s*citizen\b/i,
-  /\bonly\s+U\.?\s*S\.?\s*citizens\b/i,
-  /\bU\.?\s*S\.?\s*citizens?\s+only\b/i,
-  /\bU\.?\s*S\.?\s*persons?\s+only\b/i,
-  /\bmust\s+be\s+(?:a\s+)?U\.?\s*S\.?\s*person\b/i,
-  /\bno\s+(?:visa\s+)?sponsorship\s+(?:is\s+)?(?:available|offered|provided)\b/i,
-  /\bunable\s+to\s+(?:provide\s+|offer\s+)?(?:visa\s+)?sponsorship\b/i,
-  /\bdo(?:es)?\s+not\s+(?:provide|offer|sponsor)\s+(?:visa\s+)?sponsorship\b/i,
-  /\bmust\s+be\s+(?:legally\s+)?authoriz(?:ed|able)\s+to\s+work\s+in\s+(?:the\s+)?(?:U\.?\s*S\.?|United\s+States)(?:\s+without\s+sponsorship)?\b/i,
-  /\bauthoriz(?:ed|ation)\s+to\s+work\s+in\s+the\s+(?:U\.?\s*S\.?|United\s+States)\s+without\s+(?:current\s+or\s+future\s+)?sponsorship\b/i,
+// Build "country-demanding" patterns once. Each pattern is paired with a
+// callback that resolves the captured country fragment to a canonical token.
+function buildCountryDemandPatterns() {
+  const altParts = [];
+  const altToToken = [];
+  for (const [token, frag] of Object.entries(COUNTRY_DEMAND_NAMES)) {
+    altParts.push(frag);
+    altToToken.push(token);
+  }
+  const alt = altParts.map(p => `(?:${p})`).join('|');
+  // The captured group is the whole country fragment text — we resolve to a
+  // token by re-running each token's regex against the match. Cheap enough.
+  const c = `(${alt})`;
+  const wrap = (body) => new RegExp(body.replace('__C__', c), 'i');
+  return [
+    wrap(`\\bmust\\s+be\\s+(?:a\\s+)?__C__\\s+(?:citizen|national|resident|passport\\s+holder)\\b`),
+    wrap(`\\b__C__\\s+(?:citizens?|nationals?|residents?|passport\\s+holders?)\\s+only\\b`),
+    wrap(`\\bmust\\s+(?:reside|live|be\\s+based)\\s+in\\s+(?:the\\s+)?__C__\\b`),
+    wrap(`\\bmust\\s+have\\s+(?:the\\s+)?(?:legal\\s+)?right\\s+to\\s+work\\s+in\\s+(?:the\\s+)?__C__\\s+without\\s+sponsorship\\b`),
+    wrap(`\\bauthoriz(?:ed|ation)\\s+to\\s+work\\s+in\\s+(?:the\\s+)?__C__\\s+without\\s+(?:current\\s+or\\s+future\\s+)?sponsorship\\b`),
+    wrap(`\\bonly\\s+(?:open\\s+to\\s+)?__C__\\s+(?:citizens|nationals|residents)\\b`),
+    wrap(`\\b__C__[\\s-]based\\s+(?:candidates?|applicants?)\\s+only\\b`),
+  ];
+}
+const COUNTRY_DEMAND_PATTERNS = buildCountryDemandPatterns();
+
+function resolveCountryToken(matchedText) {
+  const t = (matchedText || '').toLowerCase();
+  for (const [token, frag] of Object.entries(COUNTRY_DEMAND_NAMES)) {
+    if (new RegExp(`^(?:${frag})$`, 'i').test(matchedText)) return token;
+    // Fallback substring check in case the token's fragment doesn't fully match
+    if (new RegExp(`\\b(?:${frag})\\b`, 'i').test(t)) return token;
+  }
+  return '';
+}
+
+// US-only phrasings that don't name a country in a single capture group
+// (clearance, ITAR, etc). Always excluded for non-US candidates.
+const US_CLEARANCE_PATTERNS = [
   /\b(?:active\s+|current\s+)?(?:U\.?\s*S\.?\s+)?security\s+clearance\b/i,
   /\bsecret\s+clearance\b/i,
   /\btop\s+secret\s+clearance\b/i,
@@ -617,31 +520,86 @@ const US_ONLY_PATTERNS = [
   /\bITAR\b/i,
   /\bEAR\s+regulations\b/i,
   /\bexport[- ]controlled\b/i,
-  /\bmust\s+(?:reside|live|be\s+based)\s+in\s+the\s+(?:U\.?\s*S\.?|United\s+States)\b/i,
-  /\bU\.?\s*S\.?[- ]?based\s+candidates?\s+only\b/i,
+  /\bU\.?\s*S\.?\s*persons?\s+only\b/i,
+  /\bmust\s+be\s+(?:a\s+)?U\.?\s*S\.?\s*person\b/i,
 ];
 
-function detectUsOnly(job) {
-  const text = `${job.title || ''}\n${job.description || ''}`;
-  for (const re of US_ONLY_PATTERNS) {
-    const m = re.exec(text);
-    if (m) return `US-only: matched "${m[0].slice(0, 60)}"`;
-  }
-  return null;
+// Country-agnostic no-sponsorship clauses. Excluded unless the job's
+// location matches the candidate's country (so they don't need sponsorship).
+const NO_SPONSORSHIP_PATTERNS = [
+  /\bno\s+(?:visa\s+)?sponsorship\s+(?:is\s+)?(?:available|offered|provided)\b/i,
+  /\bunable\s+to\s+(?:provide|offer|sponsor)\s+(?:visa\s+)?sponsorship\b/i,
+  /\bdo(?:es)?\s+not\s+(?:provide|offer|sponsor)\s+(?:visa\s+)?sponsorship\b/i,
+  /\bvisa\s+sponsorship\s+(?:is\s+)?not\s+(?:available|offered|provided)\b/i,
+  /\bwe\s+(?:cannot|don'?t|do\s+not)\s+sponsor\b/i,
+];
+
+function normalizeCountry(c) {
+  const s = (c || '').toLowerCase().trim();
+  if (!s) return '';
+  if (/\b(us|usa|u\.?s\.?|united\s*states|america)\b/.test(s)) return 'us';
+  if (/\b(uk|u\.?k\.?|united\s*kingdom|britain|england)\b/.test(s)) return 'uk';
+  if (/india/.test(s)) return 'in';
+  if (/canad/.test(s)) return 'ca';
+  if (/austral/.test(s)) return 'au';
+  if (/german/.test(s)) return 'de';
+  if (/(france|french)/.test(s)) return 'fr';
+  if (/singapore/.test(s)) return 'sg';
+  if (/(netherlands|dutch|holland)/.test(s)) return 'nl';
+  if (/(ireland|irish)/.test(s)) return 'ie';
+  if (/(switzerland|swiss)/.test(s)) return 'ch';
+  if (/israel/.test(s)) return 'il';
+  if (/japan/.test(s)) return 'jp';
+  if (/\b(eu|eea|european)\b/.test(s)) return 'eu';
+  return '';
 }
 
-// Worldwide-friendly visa check. Returns exclusion reason if the job
-// requires citizenship/residency of a specific country that doesn't match
-// the candidate's. Used for non-US candidates so they don't see UK-only,
-// EU-only, Canada-only, etc. jobs either.
-function detectCountrySpecific(job, candidateCountry) {
+function jobIsInCandidateCountry(job, candidateToken) {
+  if (!candidateToken) return false;
+  const loc = job.location || '';
+  const re = COUNTRY_LOCATION_PATTERNS[candidateToken];
+  return re ? re.test(loc) : false;
+}
+
+function detectVisaExclusion(job, candidateCountry) {
+  const candidateToken = normalizeCountry(candidateCountry);
+  // If we don't know the candidate's country, we can't make a relative
+  // judgement — skip filtering entirely.
+  if (!candidateToken) return null;
+
   const text = `${job.title || ''}\n${job.location || ''}\n${job.description || ''}`;
-  // Skip if the job is explicitly global-friendly — sponsorship offered etc.
-  if (detectGlobalFriendly(job)) return null;
-  for (const re of COUNTRY_ONLY_PATTERNS) {
-    const m = re.exec(text);
-    if (m) return `Local-only: matched "${m[0].slice(0, 80)}"`;
+  if (isGlobalFriendly(text)) return null;
+
+  // 1. US clearance / ITAR / "US persons only" — excludes everyone except US.
+  if (candidateToken !== 'us') {
+    for (const re of US_CLEARANCE_PATTERNS) {
+      const m = re.exec(text);
+      if (m) return `US-only: "${m[0].slice(0, 60)}"`;
+    }
   }
+
+  // 2. Explicit country demand — exclude if the demanded country isn't the
+  //    candidate's own country.
+  for (const re of COUNTRY_DEMAND_PATTERNS) {
+    const m = re.exec(text);
+    if (!m) continue;
+    const demanded = resolveCountryToken(m[1]);
+    if (!demanded || demanded === candidateToken) continue;
+    // EU candidates are also OK with EU-wide demands and vice versa is too
+    // permissive, but we treat EU as its own bucket — candidates set "EU"
+    // explicitly to opt in.
+    return `Local-only (${demanded.toUpperCase()}): "${m[0].slice(0, 80)}"`;
+  }
+
+  // 3. Country-agnostic "no sponsorship" — exclude unless the job is in the
+  //    candidate's own country (where they don't need sponsorship).
+  if (!jobIsInCandidateCountry(job, candidateToken)) {
+    for (const re of NO_SPONSORSHIP_PATTERNS) {
+      const m = re.exec(text);
+      if (m) return `No-sponsorship: "${m[0].slice(0, 60)}"`;
+    }
+  }
+
   return null;
 }
 
@@ -691,9 +649,10 @@ async function handleFetchJobs(request, env) {
   // Pick the most useful keyword for Adzuna: first explicit titleFilter,
   // otherwise the generic 'designer'. Adzuna doesn't accept arbitrary lists.
   const adzunaKeyword = titleFilters[0] || 'designer';
-  // Default to India for the candidate's country; fall back to 'gb' or 'us'
-  // if it'd return nothing — but India is the design intent here.
-  const adzunaCountry = /india/i.test(country) ? 'in' : 'in';
+  // Adzuna is hard-coded to the India tier for now — that's where this app
+  // currently adds the most non-overlapping postings. Make it configurable
+  // when supporting more candidate countries.
+  const adzunaCountry = 'in';
 
   // All fetches in parallel via Promise.allSettled — one failure doesn't sink the rest.
   const tasks = [
@@ -749,72 +708,34 @@ async function handleFetchJobs(request, env) {
     j.description = stripHtml(j.description || '').slice(0, 8000);
   }
 
-  // Two-pass tagging:
-  //   excluded     — hard-block jobs requiring local citizenship anywhere
-  //   globalFriendly — surface jobs that explicitly welcome worldwide candidates
-  const nonUs = country && !['united states', 'usa', 'us'].includes(country.toLowerCase());
-  const final = titleFiltered.map(j => {
-    // For non-US candidates, exclude both US-only AND any-other-country-only language.
-    // For US-based candidates, only exclude truly local-only (uses the generic check).
-    const excluded = nonUs
-      ? (detectUsOnly(j) || detectCountrySpecific(j, country))
-      : null;
-    return {
-      ...j,
-      excluded,
-      globalFriendly: !excluded && detectGlobalFriendly(j),
-    };
-  });
+  // Visa filter: drop jobs that require right-to-work in a country other
+  // than the candidate's, or refuse visa sponsorship for jobs located
+  // outside the candidate's country. The client never sees these.
+  const kept = [];
+  const excludedSamples = [];
+  let excludedCount = 0;
+  for (const j of titleFiltered) {
+    const reason = detectVisaExclusion(j, country);
+    if (reason) {
+      excludedCount++;
+      if (excludedSamples.length < 5) {
+        excludedSamples.push({ title: j.title, company: j.company, reason });
+      }
+      continue;
+    }
+    kept.push(j);
+  }
 
   return {
     fetched: all.length,
     afterDedupe: dedup.length,
     afterTitleFilter: titleFiltered.length,
-    excludedUsOnly: final.filter(j => j.excluded).length,
-    globalFriendly: final.filter(j => j.globalFriendly).length,
+    excludedVisa: excludedCount,
+    excludedSamples,
     counts,
     errors,
-    jobs: final,
+    jobs: kept,
   };
-}
-
-// ────────────────────────────────────────────────────────────────────────────
-// /score and /cover-letter handlers
-// ────────────────────────────────────────────────────────────────────────────
-
-async function handleScore(env, request) {
-  const { profile, job } = await request.json();
-  if (!profile || !job) return { error: 'Body must include {profile, job}' };
-  const prompt = `CANDIDATE PROFILE\n${profileText(profile)}\n\nJOB\n${jobText(job)}`;
-  const { text, model } = await callGemini(env, {
-    systemInstruction: SCORE_SYSTEM,
-    prompt,
-    responseSchema: SCORE_SCHEMA,
-    maxTokens: 300,
-    temperature: 0.2,
-  });
-  let score = 0, reason = '';
-  try {
-    const data = JSON.parse(text);
-    score = Math.max(0, Math.min(100, parseInt(data.score, 10) || 0));
-    reason = String(data.reason || '').slice(0, 300);
-  } catch (e) {
-    reason = `Parse error: ${String(e).slice(0, 120)}`;
-  }
-  return { score, reason, model };
-}
-
-async function handleCoverLetter(env, request) {
-  const { profile, job } = await request.json();
-  if (!profile || !job) return { error: 'Body must include {profile, job}' };
-  const prompt = `CANDIDATE\n${profileText(profile)}\n\nJOB\n${jobText(job)}`;
-  const { text, model } = await callGemini(env, {
-    systemInstruction: COVER_SYSTEM,
-    prompt,
-    maxTokens: 800,
-    temperature: 0.7,
-  });
-  return { text, model };
 }
 
 // ────────────────────────────────────────────────────────────────────────────
@@ -855,8 +776,6 @@ export default {
       }
 
       if (path === '/fetch-jobs') return json(await handleFetchJobs(request, env));
-      if (path === '/score') return json(await handleScore(env, request));
-      if (path === '/cover-letter') return json(await handleCoverLetter(env, request));
 
       return json({ error: `Unknown path ${path}` }, 404);
     } catch (e) {

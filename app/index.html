@@ -91,16 +91,11 @@
   .toolbar{display:flex;align-items:center;gap:8px;margin:14px 0 8px;flex-wrap:wrap}
   .toolbar .right{margin-left:auto;display:flex;gap:6px;font-size:12px;color:var(--muted)}
   .joblist{display:flex;flex-direction:column;gap:6px}
-  .jobrow{display:grid;grid-template-columns:48px 1fr auto;gap:14px;align-items:center;padding:12px 14px;background:var(--panel);border:1px solid var(--line);border-radius:10px;cursor:pointer;transition:.12s}
+  .jobrow{display:grid;grid-template-columns:1fr auto;gap:14px;align-items:center;padding:12px 14px;background:var(--panel);border:1px solid var(--line);border-radius:10px;cursor:pointer;transition:.12s}
   .jobrow:hover{border-color:#333;background:var(--panel-2)}
-  .score{width:40px;height:40px;border-radius:8px;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:14px;background:var(--chip);color:var(--muted);font-variant-numeric:tabular-nums}
-  .score.s-4, .score.s-5{background:rgba(74,222,128,.16);color:var(--good)}
-  .score.s-3{background:rgba(251,191,36,.16);color:var(--warn)}
-  .score.s-0, .score.s-1, .score.s-2{background:rgba(248,113,113,.14);color:var(--bad)}
   .jobrow .meta .company{font-weight:700;font-size:18px;color:var(--ink);margin-bottom:2px;line-height:1.25;letter-spacing:-.2px}
   .jobrow .meta .title{font-weight:500;font-size:15px;color:#cdcdcd;margin-bottom:2px;line-height:1.3}
   .jobrow .meta .sub{font-size:12px;color:var(--muted)}
-  .jobrow .meta .reason{font-size:12px;color:#cdcdcd;margin-top:6px;line-height:1.4}
   .jobrow .arrow{color:var(--muted);font-size:18px}
 
   /* Job detail */
@@ -316,11 +311,7 @@
       </div>
 
       <div class="row" style="margin-bottom:12px">
-        <div class="score" id="jobScore">—</div>
-        <div style="flex:1">
-          <div id="jobMeta" style="color:var(--muted);font-size:13px;margin-bottom:4px"></div>
-          <div id="jobReason" style="font-size:13px;color:#cdcdcd"></div>
-        </div>
+        <div id="jobMeta" style="color:var(--muted);font-size:13px"></div>
       </div>
 
       <h3 style="margin:18px 0 10px;font-size:14px;color:var(--muted);text-transform:uppercase;letter-spacing:.1em">Job description</h3>
@@ -399,7 +390,6 @@ const state = {
   currentView: 'jobs',
   currentJobKey: null,  // for job detail view
   indiaOnly: false,     // 🇮🇳 India / Bangalore filter toggle
-  scoring: false,       // re-entrancy lock for autoScore
 };
 
 // India-location detector. Tests the job's location text for any major
@@ -508,7 +498,7 @@ fbAuth.onAuthStateChanged(async (user) => {
 // FIRESTORE
 // State shape:
 //   users/{uid}                  → { profile, meta }
-//   users/{uid}/jobs/{jobKey}    → { source, externalId, title, ..., score, scoreReason, status, ... }
+//   users/{uid}/jobs/{jobKey}    → { source, externalId, title, company, location, url, description, postedAt, savedAt }
 // ─────────────────────────────────────────────────────────────────────────
 
 const userDoc = () => db.collection('users').doc(state.user.uid);
@@ -534,9 +524,30 @@ async function loadFromFirestore() {
   const jobSnap = await userDoc().collection('jobs').limit(500).get();
   state.jobs = {};
   jobSnap.forEach(d => { state.jobs[d.id] = d.data(); });
+  // Purge any legacy visa-excluded jobs left over from older builds.
+  await purgeLegacyExcluded();
   updateCounts();
-  // If a previous session left unscored jobs lying around, finish them now.
-  autoScore();
+}
+
+// One-time cleanup. Earlier builds saved visa-excluded jobs to Firestore
+// with status:'excluded' and score:-1 instead of dropping them at the
+// Worker. Newer Worker drops them entirely, so anything matching that
+// shape in the user's Firestore is dead weight — delete on next load.
+async function purgeLegacyExcluded() {
+  const stale = Object.entries(state.jobs)
+    .filter(([_, j]) => j.status === 'excluded' || j.score === -1)
+    .map(([k]) => k);
+  if (!stale.length) return;
+  for (let i = 0; i < stale.length; i += 400) {
+    const chunk = stale.slice(i, i + 400);
+    const batch = db.batch();
+    for (const key of chunk) {
+      batch.delete(jobDoc(key));
+      delete state.jobs[key];
+    }
+    await batch.commit();
+  }
+  console.log(`[ZeeApply] Purged ${stale.length} legacy excluded jobs`);
 }
 
 // Promise-with-timeout helper. Throws if the underlying promise hasn't
@@ -593,20 +604,6 @@ async function api(path, body) {
   return data;
 }
 
-function profilePayload() {
-  const p = state.profile || {};
-  return {
-    resume: p.resume,
-    country: p.country,
-    workAuthorization: p.workAuthorization,
-    targetRole: p.targetRole,
-    locations: p.locations,
-    minSalary: p.minSalary,
-    keywords: p.keywords,
-    exclusions: p.exclusions,
-  };
-}
-
 function parseCsv(s) {
   return (s || '').split(',').map(x => x.trim()).filter(Boolean);
 }
@@ -618,7 +615,7 @@ $('fetchBtn').addEventListener('click', async () => {
   if (!state.profile) return;
   const btn = $('fetchBtn');
   btn.disabled = true;
-  setStatusPill('Fetching from 8 job sources…');
+  setStatusPill('Fetching jobs…');
   try {
     const data = await api('/fetch-jobs', {
       titleFilters: parseCsv(state.profile.titleFilters),
@@ -628,7 +625,7 @@ $('fetchBtn').addEventListener('click', async () => {
       ashbyCompanies: parseCsv(state.profile.ashbyCompanies),
     });
     // Upsert into Firestore in batches (Firestore limit: 500 writes/batch)
-    let inserted = 0, updated = 0, skipped = 0;
+    let inserted = 0, skipped = 0;
     const all = data.jobs || [];
     for (let i = 0; i < all.length; i += 400) {
       const chunk = all.slice(i, i + 400);
@@ -645,9 +642,6 @@ $('fetchBtn').addEventListener('click', async () => {
           url: j.url,
           description: (j.description || '').slice(0, 6000),
           postedAt: j.postedAt || null,
-          score: j.excluded ? -1 : null,
-          scoreReason: j.excluded || '',
-          status: j.excluded ? 'excluded' : 'new',
           savedAt: Date.now(),
         };
         batch.set(jobDoc(key), doc);
@@ -658,62 +652,17 @@ $('fetchBtn').addEventListener('click', async () => {
     }
     updateCounts();
     renderJobs();
-    setStatusPill(`✓ Fetched ${all.length} · saved ${inserted} new · skipped ${skipped} dupes`, '');
-    toast(`Fetched ${all.length} jobs · ${inserted} new · auto-scoring now`, 'ok');
+    const visaDropped = data.excludedVisa || 0;
+    const visaNote = visaDropped ? ` · ${visaDropped} visa-required dropped` : '';
+    setStatusPill(`✓ Fetched ${all.length} · saved ${inserted} new · skipped ${skipped} dupes${visaNote}`, '');
+    toast(`Fetched ${all.length} jobs · ${inserted} new${visaNote}`, 'ok');
   } catch (e) {
     setStatusPill('Fetch failed', 'bad');
     toast('Fetch failed: ' + e.message, 'err');
   } finally {
     btn.disabled = false;
   }
-  // Kick off scoring of any unscored jobs without blocking the user
-  autoScore();
 });
-
-// ─────────────────────────────────────────────────────────────────────────
-// AUTO-SCORE
-// Runs automatically after Fetch and on initial app load when there are
-// unscored jobs in your Firestore. No button to click — the system just
-// scores whatever's pending. Sequentially through all of them so the
-// Gemini fallback chain has time to absorb rate-limit hiccups gracefully.
-// Set state.scoring as a re-entrancy lock so the same loop isn't started
-// twice (e.g. on initial load + immediately after a fetch).
-// ─────────────────────────────────────────────────────────────────────────
-async function autoScore() {
-  if (state.scoring) return;
-  state.scoring = true;
-  try {
-    const pending = Object.entries(state.jobs)
-      .filter(([_, j]) => !j.excluded && (j.score === null || j.score === undefined));
-    if (!pending.length) {
-      state.scoring = false;
-      return;
-    }
-    let done = 0, failed = 0;
-    for (const [key, j] of pending) {
-      setStatusPill(`Scoring ${done + 1} of ${pending.length}…`);
-      try {
-        const res = await api('/score', { profile: profilePayload(), job: j });
-        j.score = res.score;
-        j.scoreReason = res.reason;
-        j.scoreModel = res.model;
-        await jobDoc(key).set({ score: res.score, scoreReason: res.reason, scoreModel: res.model }, { merge: true });
-        done++;
-      } catch (e) {
-        failed++;
-        j.score = -1;
-        j.scoreReason = 'Error: ' + e.message.slice(0, 200);
-        await jobDoc(key).set({ score: -1, scoreReason: j.scoreReason }, { merge: true });
-      }
-      // Re-render every 10 to show progress without flickering on every job
-      if (done % 10 === 0) renderJobs();
-    }
-    renderJobs();
-    setStatusPill(`✓ Scored ${done}${failed ? ' · ' + failed + ' errors' : ''}`, failed ? 'warn' : '');
-  } finally {
-    state.scoring = false;
-  }
-}
 
 // ─────────────────────────────────────────────────────────────────────────
 // RESET FEED — bulk-deletes every job in users/{uid}/jobs. Useful when an
@@ -758,13 +707,13 @@ $('resetNewBtn').addEventListener('click', async () => {
 // ─────────────────────────────────────────────────────────────────────────
 // RENDER JOB LIST
 // ─────────────────────────────────────────────────────────────────────────
-// Visible jobs = everything in Firestore that the Worker did NOT auto-exclude
-// (US-only / clearance / no-sponsorship). Sorted by score then by recency.
+// Visible jobs = everything in Firestore. The Worker drops visa-required
+// postings before they reach us, so anything in Firestore is fair game.
+// Sorted by recency (savedAt desc).
 function visibleJobs() {
   return Object.entries(state.jobs)
-    .filter(([_, j]) => !j.excluded && j.status !== 'excluded')
     .map(([k, j]) => ({ key: k, ...j }))
-    .sort((a, b) => (b.score ?? -1) - (a.score ?? -1) || (b.savedAt || 0) - (a.savedAt || 0));
+    .sort((a, b) => (b.savedAt || 0) - (a.savedAt || 0));
 }
 
 function updateCounts() {
@@ -789,18 +738,14 @@ function renderJobs() {
     return;
   }
   wrap.innerHTML = list.map(j => {
-    const score = (j.score === null || j.score === undefined) ? '—' : j.score;
-    const bucket = (j.score === null || j.score === undefined) ? '' : `s-${Math.floor(j.score / 20)}`;
     const indiaBadge = isIndiaJob(j)
       ? `<span title="Job is based in India" style="display:inline-block;margin-left:8px;padding:1px 7px;background:rgba(106,166,255,.12);color:var(--blue);border-radius:4px;font-size:10px;font-weight:600;letter-spacing:.04em;vertical-align:middle">🇮🇳 INDIA</span>`
       : '';
     return `<div class="jobrow" data-key="${escapeHtml(j.key)}">
-      <div class="score ${bucket}">${score}</div>
       <div class="meta">
         <div class="company">${escapeHtml(j.company)}${indiaBadge}</div>
         <div class="title">${escapeHtml(j.title)}</div>
         <div class="sub">${escapeHtml(j.location || '—')} · <span style="color:#666">${escapeHtml(j.source)}</span></div>
-        ${j.scoreReason ? `<div class="reason">${escapeHtml(j.scoreReason)}</div>` : ''}
       </div>
       <div class="arrow">›</div>
     </div>`;
@@ -831,12 +776,7 @@ function renderJobDetail() {
   $('jobCompany').innerHTML = escapeHtml(j.company) + indiaBadge;
   $('jobTitle').textContent = j.title;
   $('jobMeta').textContent = `${j.location || '—'} · ${j.source}`;
-  $('jobReason').textContent = j.scoreReason || '(not scored yet)';
   $('jobOpenLink').href = j.url || '#';
-  const sc = (j.score === null || j.score === undefined) ? '—' : j.score;
-  const bucket = (j.score === null || j.score === undefined) ? '' : `s-${Math.floor(j.score / 20)}`;
-  $('jobScore').textContent = sc;
-  $('jobScore').className = 'score ' + bucket;
   $('jobDesc').textContent = cleanDesc(j.description) || '(no description)';
 }
 
