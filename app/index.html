@@ -193,6 +193,7 @@
           <h2>Profile</h2>
         </div>
         <div class="actions">
+          <button class="btn ghost" id="resetFeedBtn" title="Delete all saved jobs and re-fetch fresh with current filters.">↻ Reset feed</button>
           <button class="btn primary" id="saveProfileBtn">Save profile</button>
         </div>
       </div>
@@ -764,6 +765,31 @@ $('saveProfileBtn').addEventListener('click', async () => {
   }
 });
 
+$('resetFeedBtn').addEventListener('click', async () => {
+  const keys = Object.keys(state.jobs);
+  const ok = confirm(`Delete all ${keys.length} saved jobs and re-fetch fresh?\n\nThis clears stale results so your current filters apply cleanly.`);
+  if (!ok) return;
+  const btn = $('resetFeedBtn');
+  btn.disabled = true;
+  setStatusPill(`Clearing ${keys.length} jobs…`, 'warn');
+  try {
+    for (let i = 0; i < keys.length; i += 400) {
+      const chunk = keys.slice(i, i + 400);
+      const batch = db.batch();
+      for (const key of chunk) { batch.delete(jobDoc(key)); delete state.jobs[key]; }
+      await batch.commit();
+    }
+    updateCounts();
+    toast('Feed cleared — fetching fresh jobs…', 'ok');
+    routeTo('jobs');
+    fetchJobs();
+  } catch (e) {
+    toast('Reset failed: ' + e.message, 'err');
+  } finally {
+    btn.disabled = false;
+  }
+});
+
 // ─────────────────────────────────────────────────────────────────────────
 // ROUTING (hash-based, no library)
 // #/jobs | #/profile | #/job/<key>
@@ -778,11 +804,11 @@ function routeFromHash() {
   const parts = h.split('/').filter(Boolean);
 
   document.querySelectorAll('.view').forEach(v => hide(v));
-  document.querySelectorAll('.nav button').forEach(b => b.classList.remove('active'));
+  document.querySelectorAll('#nav button').forEach(b => b.classList.remove('active'));
 
   if (parts[0] === 'profile') {
     show($('view-profile'));
-    document.querySelector('.nav button[data-view="profile"]')?.classList.add('active');
+    document.querySelector('#nav button[data-view="profile"]')?.classList.add('active');
     state.currentView = 'profile';
   } else if (parts[0] === 'job' && parts[1]) {
     state.currentJobKey = decodeURIComponent(parts[1]);
@@ -792,14 +818,14 @@ function routeFromHash() {
   } else {
     state.currentView = 'jobs';
     show($('view-jobs'));
-    document.querySelector('.nav button[data-view="jobs"]')?.classList.add('active');
+    document.querySelector('#nav button[data-view="jobs"]')?.classList.add('active');
     renderJobs();
   }
 }
 
 window.addEventListener('hashchange', routeFromHash);
 
-document.querySelectorAll('.nav button').forEach(b => {
+document.querySelectorAll('#nav button').forEach(b => {
   b.addEventListener('click', () => routeTo(b.dataset.view));
 });
 
